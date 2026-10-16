@@ -39,7 +39,7 @@ Var LocalValidationSeed
 Var LocalCodeCleanup
 
 !define LOCAL_INSTALL_STATE_KEY "Software\Leadya\Server"
-!define LEADYA_VALIDATOR_SHA256 "10E1886D097653F7DAA1699F888C248B46DF3BF9AE23AF78127EC39E6B9C03BC"
+!define LEADYA_VALIDATOR_SHA256 "B5F711DCADE697DA77E45AA2D24D9F4C44DD9625D5CA1E0D0DEF5E69D482EBFA"
 !define LEADYA_TRUSTED_DOWNLOADS
 ; Elevated downloads use an admin-owned package, never a writable code folder or per-user runtime.
 !define LEADYA_INSTALL_DOWNLOAD_DIR "$LocalTrustedHome"

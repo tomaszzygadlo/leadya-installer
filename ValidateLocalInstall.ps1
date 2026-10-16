@@ -1,6 +1,6 @@
 ﻿param(
     [Parameter(Mandatory = $true)][string]$InstallDirectory,
-    [ValidateSet('Runtime', 'Destination', 'Prepare', 'Installed', 'Installable', 'Publish', 'Package', 'PackagePrepare', 'PackageTemp', 'PackageSeed', 'Seed', 'Uninstall', 'CodeCleanup', 'Mirror', 'Links', 'Unlink', 'Jre', 'JrePrepare', 'JreCreate')][string]$Mode = 'Destination',
+    [ValidateSet('Runtime', 'Destination', 'Prepare', 'Installed', 'Installable', 'Publish', 'Package', 'PackagePrepare', 'PackageTemp', 'PackageSeed', 'Seed', 'Uninstall', 'CodeCleanup', 'Mirror', 'Links', 'Unlink', 'Jre', 'JrePrepare', 'JreCreate', 'JreProbe')][string]$Mode = 'Destination',
     [string]$PublicOrigin,
     [string]$ProgramJar,
     [string]$JavaExecutable,
@@ -220,8 +220,56 @@ try {
             }
         }
     }
-    if ($Mode -in @('Jre', 'JrePrepare', 'JreCreate')) {
+    function New-LocalJavaStartInfo([string]$Executable, [string]$Arguments, [string]$WorkingDirectory) {
+        $windows = [Environment]::GetFolderPath('Windows')
+        if (-not $windows -or -not [IO.Directory]::Exists($WorkingDirectory)) { throw 'LOCAL_JAVA_ENVIRONMENT' }
+        $system = Join-Path $windows 'System32'
+        $info = New-Object Diagnostics.ProcessStartInfo
+        $info.FileName = $Executable
+        $info.Arguments = '-XX:-UsePerfData ' + $Arguments
+        $info.UseShellExecute = $false
+        $info.CreateNoWindow = $true
+        $info.RedirectStandardOutput = $true
+        $info.RedirectStandardError = $true
+        $info.WorkingDirectory = $WorkingDirectory
+        # Construct the child environment: JVM/CLR loader options and arbitrary PATH entries never enter it.
+        # Known-folder APIs provide profile/Windows paths; do not copy values from the caller's environment.
+        $info.EnvironmentVariables.Clear()
+        $info.EnvironmentVariables['SystemRoot'] = $windows
+        $info.EnvironmentVariables['WINDIR'] = $windows
+        $info.EnvironmentVariables['SystemDrive'] = [IO.Path]::GetPathRoot($windows).TrimEnd('\')
+        $info.EnvironmentVariables['ComSpec'] = Join-Path $system 'cmd.exe'
+        $info.EnvironmentVariables['PATH'] = ([IO.Path]::GetDirectoryName($Executable)) + ';' + $system + ';' + $windows
+        $info.EnvironmentVariables['USERPROFILE'] = [Environment]::GetFolderPath('UserProfile')
+        $info.EnvironmentVariables['LOCALAPPDATA'] = [Environment]::GetFolderPath('LocalApplicationData')
+        $info.EnvironmentVariables['APPDATA'] = [Environment]::GetFolderPath('ApplicationData')
+        $info.EnvironmentVariables['TEMP'] = $WorkingDirectory
+        $info.EnvironmentVariables['TMP'] = $WorkingDirectory
+        return $info
+    }
+    function Invoke-JavaProbe([string]$Arguments, [int]$Timeout) {
+        if ($elevated) {
+            $expectedJava = Join-Path $programFiles 'Java\jdk-17.0.9+9-jre\bin\java.exe'
+            if ([IO.Path]::GetFullPath($JavaExecutable) -ine $expectedJava) { throw 'LOCAL_JAVA_BINDING' }
+            Assert-SharedJre
+            Assert-PackagePath $JavaExecutable
+            Assert-PackageAncestors
+            Assert-PackagePath $package
+            $windows = [Environment]::GetFolderPath('Windows')
+            Assert-ProtectedAncestors $windows
+            Assert-ProtectedAncestors (Join-Path $windows 'System32')
+        }
+        $probe = New-Object Diagnostics.Process
+        $probe.StartInfo = New-LocalJavaStartInfo $JavaExecutable $Arguments $package
+        try {
+            if (-not $probe.Start()) { throw 'LOCAL_JAVA_FAILED' }
+            if (-not $probe.WaitForExit($Timeout)) { $probe.Kill(); $probe.WaitForExit(); throw 'LOCAL_JAVA_TIMEOUT' }
+            if ($probe.ExitCode -ne 0) { throw 'LOCAL_JAVA_FAILED' }
+        } finally { $probe.Dispose() }
+    }
+    if ($Mode -in @('Jre', 'JrePrepare', 'JreCreate', 'JreProbe')) {
         Assert-SharedJre $Mode
+        if ($Mode -eq 'JreProbe') { Invoke-JavaProbe '-version' 15000 }
         Write-Output 'LOCAL_VALID'
         exit 0
     }
@@ -280,27 +328,6 @@ try {
         if ((Get-Item -LiteralPath $markerPath).Length -gt 65536) { throw 'LOCAL_MARKER_INVALID' }
         $marker = [IO.File]::ReadAllLines($markerPath)
         if ($marker.Count -ne 3 -or $marker[0] -cne 'LOCAL' -or $marker[1] -ine $RuntimePath -or $marker[2] -cne $PublicOrigin) { throw 'LOCAL_MARKER_MISMATCH' }
-    }
-    function Invoke-JavaProbe([string]$Arguments, [int]$Timeout) {
-        if ($elevated) {
-            $expectedJava = Join-Path $programFiles 'Java\jdk-17.0.9+9-jre\bin\java.exe'
-            if ([IO.Path]::GetFullPath($JavaExecutable) -ine $expectedJava) { throw 'LOCAL_JAVA_BINDING' }
-            Assert-SharedJre
-            Assert-PackagePath $JavaExecutable
-        }
-        $probe = New-Object Diagnostics.Process
-        $probe.StartInfo = New-Object Diagnostics.ProcessStartInfo
-        $probe.StartInfo.FileName = $JavaExecutable
-        $probe.StartInfo.Arguments = $Arguments
-        $probe.StartInfo.UseShellExecute = $false
-        $probe.StartInfo.CreateNoWindow = $true
-        $probe.StartInfo.RedirectStandardOutput = $true
-        $probe.StartInfo.RedirectStandardError = $true
-        try {
-            if (-not $probe.Start()) { throw 'LOCAL_JAVA_FAILED' }
-            if (-not $probe.WaitForExit($Timeout)) { $probe.Kill(); $probe.WaitForExit(); throw 'LOCAL_JAVA_TIMEOUT' }
-            if ($probe.ExitCode -ne 0) { throw 'LOCAL_JAVA_FAILED' }
-        } finally { $probe.Dispose() }
     }
     if ($Mode -eq 'Runtime') {
         $binding = Join-Path $root 'leadya-runtime-home.txt'

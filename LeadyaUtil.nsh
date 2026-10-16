@@ -116,10 +116,17 @@ Var JreArchivePath
   !endif
   ; A working shared runtime must remain available to other installed clients.
   IfFileExists "${LEADYA_SHARED_JRE_DIR}\bin\java.exe" 0 CheckOldJre
+  !ifdef LEADYA_TRUSTED_DOWNLOADS
+    ; LOCAL uses the pinned helper's isolated child environment. A failed probe never deletes a shared JRE.
+    StrCpy $LocalValidationMode "JreProbe"
+    Call RequireTrustedLocalJre
+    Goto Finish
+  !else
   nsExec::ExecToStack /TIMEOUT=15000 '"${LEADYA_SHARED_JRE_DIR}\bin\java.exe" -version'
   Pop $0
   Pop $1
   StrCmp $0 "0" Finish
+  !endif
   CheckOldJre:
   ; Replace only an unusable shared JRE.
   ${LogLine} "(InstallJRE) Checking if old JRE folder exists"
