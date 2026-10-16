@@ -1,0 +1,35 @@
+﻿Copyright 2022-2026 Turbot sp z o.o. & Tomasz Żygadło
+
+CONTRATO DE LICENCIA PARA EL USO DE SOFTWARE "Leadya"
+
+Este contrato (en adelante, "Contrato") se celebra entre usted (en adelante, el "Usuario") y el propietario del software "Leadya" (en adelante, el "Propietario") con respecto al uso de la parte instalable del software "Leadya" (en adelante, el "Software"). Lea detenidamente este Contrato antes de instalar y utilizar el Software. Al instalar o utilizar el Software, usted acepta los términos de este Contrato.
+
+1. Objeto del Contrato
+
+1.1. El Propietario otorga al Usuario una licencia limitada para utilizar el Software con el propósito de acceder a las cuentas de redes sociales del Usuario y ejecutar comandos desde el servidor de Leadya.
+
+2. Derechos de Autor y Propiedad Intelectual
+
+2.1. El Software, así como todos los derechos de autor y derechos de propiedad intelectual relacionados con el Software, son propiedad del Propietario. Se prohíbe al Usuario modificar, copiar o distribuir el Software sin el permiso del Propietario.
+
+3. Limitaciones
+
+3.1. El Usuario no tiene derecho a:
+a) Eliminar, modificar u ocultar cualquier aviso de derechos de autor del Software.
+b) Desmontar el Software en componentes individuales con el propósito de distribución o uso independiente.
+
+4. Garantías
+
+4.1. El Propietario no otorga garantías expresas o implícitas con respecto al funcionamiento del Software. El Usuario utiliza el Software bajo su propio riesgo.
+
+5. Responsabilidad
+
+5.1. El Propietario no se hace responsable de los daños que puedan surgir como resultado del uso del Software, incluyendo la pérdida de datos, pérdida financiera u otros tipos de daños.
+
+6. Disposiciones Finales
+
+6.1. Este Contrato entra en vigor desde la instalación del Software y permanece en vigencia hasta que sea terminado por el Usuario o el Propietario.
+
+6.2. El Usuario puede dar por terminado este Contrato en cualquier momento desinstalando el Software.
+
+6.3. El Propietario puede dar por terminado este Contrato en caso de que el Usuario incumpla sus disposiciones.

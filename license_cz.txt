@@ -1,0 +1,37 @@
+﻿Copyright 2022-2026 Turbot sp z o.o. & Tomasz Żygadło
+
+LICENČNÍ SMLOUVA K POUŽITÍ SOFTWARE "Leadya"
+
+Tato smlouva (dále jen "Smlouva") je uzavřena mezi Vámi (dále jen "Uživatel") a vlastníkem softwaru "Leadya" (dále jen "Vlastník") týkající se používání instalační části aplikace "Leadya" (dále jen "Software"). Prosím, pečlivě si přečtěte tuto Smlouvu před instalací a používáním Software. Instalací nebo používáním Software souhlasíte s dodržováním ustanovení této Smlouvy.
+
+1. Předmět Smlouvy
+
+1.1. Vlastník uděluje Uživateli omezenou licenci k používání Softwaru pro přihlašování se do sociálních médií uživatele a provádění příkazů ze serveru Leadya.
+
+2. Autorská práva a práva duševního vlastnictví
+
+2.1. Software, stejně jako všechna autorská práva a práva duševního vlastnictví související s Softwarem, zůstávají vlastnictvím Vlastníka. Uživatel nemá právo měnit, kopírovat nebo šířit Software bez souhlasu Vlastníka.
+
+3. Omezení
+
+3.1. Uživatel nemá právo:
+a) Odstranit, upravit nebo skrýt jakékoli označení autorských práv v Software.
+b) Rozložit Software na samostatné části pro distribuci nebo samostatné použití.
+c) Používat Software způsobem, který by porušoval zákon nebo práva jiných osob.
+d) Používat Software pro účely neslučující se s jeho určením.
+
+4. Záruky
+
+4.1. Vlastník neposkytuje žádné přímé ani nepřímé záruky ohledně provozu Softwaru. Uživatel používá Software na vlastní nebezpečí.
+
+5. Odpovědnost
+
+5.1. Vlastník nenese odpovědnost za škody způsobené používáním Softwaru, včetně ztráty dat, finančních ztrát nebo jiných škod.
+
+6. Závěrečná ustanovení
+
+6.1. Tato Smlouva platí od okamžiku instalace Softwaru a zůstává v platnosti do jejího ukončení Uživatelem nebo Vlastníkem.
+
+6.2. Uživatel může Smlouvu ukončit kdykoli odinstalací Softwaru.
+
+6.3. Vlastník může Smlouvu ukončit v případě porušení ustanovení Smlouvy Uživatelem.

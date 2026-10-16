@@ -1,0 +1,111 @@
+LeadYa installer: third-party notices
+===================================
+
+The third-party components below retain their own terms and attribution.
+They are not first-party LeadYa Apache-2.0 source.
+
+ShellExecAsUser (x86 Unicode, unchanged binary)
+----------------------------------------------
+Author: Installer32. Official plugin and source archive:
+https://nsis.sourceforge.io/ShellExecAsUser_plug-in
+https://nsis.sourceforge.io/mediawiki/images/1/1d/ShellExecAsUserUnicodeUpdate.zip
+Archive SHA256: 79bdd3e54a9ba9c30af85557b475d2322286f8726687f2e23afa772aac6049ab
+Unicode DLL SHA256: 1f17e4d5ffe7b2c9a396ee9932ac5198f0c050241e5f9ccd3a56e576613d8a29
+
+The official NSIS contribution and plugin policy supplies the default
+zlib/libpng terms unless a component states different terms:
+https://nsis.sourceforge.io/License
+https://nsis.sourceforge.io/MediaWiki:Copyrightwarning
+The included NSIS api.h states Copyright (C) 1999-2018 Nullsoft and Contributors.
+The NSIS 3.13 SDK states Copyright (C) 1999-2026 Contributors.
+The separately stated VistaTools terms are reproduced below without changes.
+LeadYa has not modified the supplied plugin or VistaTools source.
+
+ZLIB/LIBPNG LICENSE
+-------------------
+
+This software is provided 'as-is', without any express or implied warranty. In no event will the authors be held liable for any damages arising from the use of this software.
+
+Permission is granted to anyone to use this software for any purpose, including commercial applications, and to alter it and redistribute it freely, subject to the following restrictions:
+
+      1. The origin of this software must not be misrepresented; you must not claim that you wrote the original software. If you use this software in a product, an acknowledgment in the product documentation would be appreciated but is not required.
+
+      2. Altered source versions must be plainly marked as such, and must not be misrepresented as being the original software.
+
+      3. This notice may not be removed or altered from any source distribution.
+
+VistaTools.cxx source header (unmodified, including upstream history)
+------------------------------------------------------------------
+///////////////////////////////
+/* VistaTools.cxx - version 2.1
+
+THIS CODE AND INFORMATION IS PROVIDED "AS IS" WITHOUT WARRANTY OF
+ANY KIND, EITHER EXPRESSED OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE IMPLIED WARRANTIES OF MERCHANTABILITY AND/OR FITNESS FOR A
+PARTICULAR PURPOSE.
+
+Copyright (C) 2008.  WinAbility Software Corporation. All rights reserved.
+
+Author: Andrei Belogortseff [ http://www.softblog.com ]
+
+TERMS OF USE: You are free to use this file in any way you like, 
+for both the commercial and non-commercial purposes, royalty-free,
+AS LONG AS you agree with the warranty disclaimer above, 
+EXCEPT that you may not remove or modify this or any of the 
+preceeding paragraphs. If you make any changes, please document 
+them in the MODIFICATIONS section below. If the changes are of general 
+interest, please let us know and we will consider incorporating them in 
+this file, as well.
+
+If you use this file in your own project, an acknowledgment will be appreciated, 
+although it's not required.
+
+SUMMARY:
+
+This file contains several Vista-specific functions helpful when dealing with the 
+"elevation" features of Windows Vista. See the descriptions of the functions below
+for information on what each function does and how to use it.
+
+This file contains the Win32 stuff only, it can be used with or without other frameworks, 
+such as MFC, ATL, etc.
+
+HOW TO USE THIS FILE:
+
+Make sure you have the latest Windows SDK (see msdn.microsoft.com for more information)
+or this file may not compile!
+
+This is a "combo" file that contains both the declarations (usually placed in the .h files) 
+as well as the definitions (usually placed in the .cpp files) of the functions. 
+
+To get the declarations only, include it as you would any .h file, for example:
+
+#include "VistaTools.cxx"
+
+To get both the declarations and definitions, define IMPLEMENT_VISTA_TOOLS before including the file:
+
+#define IMPLEMENT_VISTA_TOOLS
+#include "VistaTools.cxx"
+
+(The above should be done once and only once per project).
+
+To use the function RunNonElevated, this file must be compiled into a DLL.
+In such a case, define DLL_EXPORTS when compiling the DLL, 
+and do not define DLL_EXPORTS when compiling the projects linking to the DLL.
+
+If you don't need to use RunNonElevated, then this file may be a part of an EXE 
+project. In such a case, define DONTWANT_RunNonElevated and NO_DLL_IMPORTS to make 
+this file compile properly. 
+
+NOTE: The file VistaTools.cxx can be included in the VisualStudio projects, but it should be 
+excluded from the build process (because its contents is compiled when it is included 
+in another .cpp file with IMPLEMENT_VISTA_TOOLS defined, as shown above.)
+
+MODIFICATIONS:
+	v.1.0 (2006-Dec-16) created by Andrei Belogortseff.
+
+	v.2.0 (2007-Feb-20) deprecated RunAsStdUser();
+						implemented RunNonElevated() to replace RunAsStdUser(); 
+						added function declarations for use in a DLL project
+
+	v.2.1 (2008-Feb-24) removed RunAsStdUser();
+*/

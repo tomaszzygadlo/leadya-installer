@@ -1,0 +1,38 @@
+﻿Copyright 2022-2026 Turbot sp z o.o. & Tomasz Żygadło
+
+SOFTWARE LICENSE AGREEMENT FOR "Leadya"
+
+This agreement (hereinafter "Agreement") is entered into between You (hereinafter "User") and the owner of the "Leadya" software (hereinafter "Owner") regarding the use of the installable part of the "Leadya" application (hereinafter "Software"). Please read this Agreement carefully before installing and using the Software. By installing or using the Software, you agree to comply with the terms of this Agreement.
+
+1. Subject of the Agreement
+
+1.1. The Owner grants the User a limited license to use the Software to log in to the user's social media accounts and execute commands from the Leadya server.
+
+2. Copyright and Intellectual Property Rights
+
+2.1. The Software, as well as all copyrights and intellectual property rights associated with the Software, remain the property of the Owner. The User is not allowed to modify, copy, or distribute the Software without the Owner's consent.
+
+3. Limitations
+
+3.1. The User is not allowed to:
+a) Remove, modify, or hide any copyright notices of the Software.
+b) Decompose the Software into component parts for distribution or separate use.
+c) Use the Software in a manner that violates the law or the rights of others.
+d) Use the Software for purposes not consistent with its intended use.
+
+4. Warranties
+
+4.1. The Owner does not provide any direct or indirect warranties regarding the operation of the Software. The User uses the Software at their own risk.
+
+5. Liability
+
+5.1. The Owner is not liable for any damages resulting from the use of the Software, including data loss, financial losses, or other damages.
+
+6. Final Provisions
+
+6.1. This Agreement is valid from the moment the Software is installed and remains in force until terminated by the User or the Owner.
+
+6.2. The User may terminate the Agreement at any time by uninstalling the Software.
+
+6.3. The Owner may terminate the Agreement in case of a User's violation of its provisions.
+

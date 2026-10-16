@@ -1,0 +1,12 @@
+target/
+__pycache__/
+*.generated.nsi
+*.exe
+*.dll
+*.pfx
+*.p12
+*.key
+*.pem
+.env
+.env.*
+plugins/

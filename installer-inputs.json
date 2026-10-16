@@ -1,0 +1,23 @@
+{
+  "Leadya.nsi": "Leadya.nsi",
+  "LeadyaUtil.nsh": "LeadyaUtil.nsh",
+  "ValidateLocalInstall.ps1": "ValidateLocalInstall.ps1",
+  "LaunchLocalLeadYa.ps1": "LaunchLocalLeadYa.ps1",
+  "Czech.nsh": "Language/Czech.nsh",
+  "English.nsh": "Language/English.nsh",
+  "German.nsh": "Language/German.nsh",
+  "Italian.nsh": "Language/Italian.nsh",
+  "Polish.nsh": "Language/Polish.nsh",
+  "Russian.nsh": "Language/Russian.nsh",
+  "Spanish.nsh": "Language/Spanish.nsh",
+  "Ukrainian.nsh": "Language/Ukrainian.nsh",
+  "license_cz.txt": "Docs/license_cz.txt",
+  "license_de.txt": "Docs/license_de.txt",
+  "license_en.txt": "Docs/license_en.txt",
+  "license_es.txt": "Docs/license_es.txt",
+  "license_it.txt": "Docs/license_it.txt",
+  "license_pl.txt": "Docs/license_pl.txt",
+  "license_ru.txt": "Docs/license_ru.txt",
+  "license_ua.txt": "Docs/license_ua.txt",
+  "ThirdPartyNotices.txt": "ThirdPartyNotices.txt"
+}

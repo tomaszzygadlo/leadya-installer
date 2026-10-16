@@ -1,0 +1,37 @@
+﻿Copyright 2022-2026 Turbot sp z o.o. & Tomasz Żygadło
+
+LIZENZVEREINBARUNG FÜR DIE NUTZUNG DER "Leadya" -SOFTWARE
+
+Diese Vereinbarung (im Folgenden "Vereinbarung") wird zwischen Ihnen (im Folgenden "Benutzer") und dem Eigentümer der "Leadya" -Software (im Folgenden "Eigentümer") in Bezug auf die Verwendung des installierbaren Teils der "Leadya" -Anwendung (im Folgenden "Software") abgeschlossen. Bitte lesen Sie diese Vereinbarung sorgfältig durch, bevor Sie die Software installieren und verwenden. Durch die Installation oder Verwendung der Software erklären Sie sich mit den Bestimmungen dieser Vereinbarung einverstanden.
+
+1. Gegenstand der Vereinbarung
+
+1.1. Der Eigentümer gewährt dem Benutzer eine beschränkte Lizenz zur Verwendung der Software, um sich bei den sozialen Medien des Benutzers anzumelden und Befehle vom Leadya-Server auszuführen.
+
+2. Urheberrechte und geistiges Eigentum
+
+2.1. Die Software sowie alle Urheberrechte und geistigen Eigentumsrechte im Zusammenhang mit der Software bleiben im Eigentum des Eigentümers. Dem Benutzer ist es nicht gestattet, die Software ohne die Zustimmung des Eigentümers zu ändern, zu kopieren oder zu verbreiten.
+
+3. Einschränkungen
+
+3.1. Der Benutzer ist nicht berechtigt:
+a) Copyright-Hinweise der Software zu entfernen, zu ändern oder zu verbergen.
+b) Die Software in Einzelteile für die Verteilung oder separate Verwendung zu zerlegen.
+c) Die Software in einer Weise zu verwenden, die gegen das Gesetz oder die Rechte anderer verstößt.
+d) Die Software für Zwecke zu verwenden, die nicht mit ihrer vorgesehenen Verwendung übereinstimmen.
+
+4. Gewährleistungen
+
+4.1. Der Eigentümer gewährt keine direkten oder indirekten Gewährleistungen in Bezug auf den Betrieb der Software. Der Benutzer verwendet die Software auf eigenes Risiko.
+
+5. Haftung
+
+5.1. Der Eigentümer haftet nicht für Schäden, die aus der Verwendung der Software resultieren, einschließlich Datenverlust, finanzieller Verluste oder anderer Schäden.
+
+6. Schlussbestimmungen
+
+6.1. Diese Vereinbarung gilt ab dem Zeitpunkt der Installation der Software und bleibt in Kraft, bis sie vom Benutzer oder vom Eigentümer gekündigt wird.
+
+6.2. Der Benutzer kann die Vereinbarung jederzeit durch Deinstallation der Software beenden.
+
+6.3. Der Eigentümer kann die Vereinbarung im Falle einer Verletzung der Bestimmungen durch den Benutzer kündigen.

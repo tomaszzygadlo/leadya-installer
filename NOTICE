@@ -1,0 +1,38 @@
+LeadYa installer
+Copyright 2026 LeadYa contributors
+
+Historical LeadYa installer sources retain their existing attribution to
+Turbot sp. z o.o. and Tomasz Żygadło (2022-2026).
+
+Apache-2.0 covers the first-party installer and build/release tools in this project.
+It does not relicense the LeadYa application, Java runtime, Chromium, NSIS or external
+plugins. Application license texts are supplied for the separately licensed payload.
+Compiler/plugin dependencies retain their own licenses; see DEPENDENCIES.md.
+
+ShellExecAsUser is an external, unchanged dependency under the published NSIS Wiki
+zlib/libpng contribution terms; see DEPENDENCIES.md for the exact archive, binary
+identity and source of that assessment. Its bundled VistaTools has distinct terms.
+No plugin DLL or C++ implementation is redistributed by this source repository.
+
+VistaTools upstream notice (verbatim paragraphs from version 2.1):
+
+THIS CODE AND INFORMATION IS PROVIDED "AS IS" WITHOUT WARRANTY OF
+ANY KIND, EITHER EXPRESSED OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE IMPLIED WARRANTIES OF MERCHANTABILITY AND/OR FITNESS FOR A
+PARTICULAR PURPOSE.
+
+Copyright (C) 2008.  WinAbility Software Corporation. All rights reserved.
+
+Author: Andrei Belogortseff [ http://www.softblog.com ]
+
+TERMS OF USE: You are free to use this file in any way you like, 
+for both the commercial and non-commercial purposes, royalty-free,
+AS LONG AS you agree with the warranty disclaimer above, 
+EXCEPT that you may not remove or modify this or any of the 
+preceeding paragraphs. If you make any changes, please document 
+them in the MODIFICATIONS section below. If the changes are of general 
+interest, please let us know and we will consider incorporating them in 
+this file, as well.
+
+If you use this file in your own project, an acknowledgment will be appreciated, 
+although it's not required.

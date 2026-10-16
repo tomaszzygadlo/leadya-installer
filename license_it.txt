@@ -1,0 +1,35 @@
+﻿Copyright 2022-2026 Turbot sp z o.o. & Tomasz Żygadło
+
+CONTRATTO DI LICENZA PER L'USO DEL SOFTWARE "Leadya"
+
+Questo contratto (di seguito "Contratto") è stipulato tra voi (di seguito "Utente") e il proprietario del software "Leadya" (di seguito "Proprietario") riguardo all'uso della parte installabile del software "Leadya" (di seguito "Software"). Leggete attentamente questo Contratto prima di installare e utilizzare il Software. Installando o utilizzando il Software, accettate i termini di questo Contratto.
+
+1. Oggetto del Contratto
+
+1.1. Il Proprietario concede all'Utente una licenza limitata per l'utilizzo del Software al fine di accedere agli account dei social media dell'Utente ed eseguire comandi dal server di Leadya.
+
+2. Diritti d'Autore e Proprietà Intellettuale
+
+2.1. Il Software, nonché tutti i diritti d'autore e i diritti di proprietà intellettuale ad esso correlati, sono di proprietà del Proprietario. È vietato all'Utente modificare, copiare o distribuire il Software senza il permesso del Proprietario.
+
+3. Limitazioni
+
+3.1. All'Utente è vietato:
+a) Rimuovere, modificare o nascondere qualsiasi avviso di copyright del Software.
+b) Smontare il Software in componenti individuali con lo scopo di distribuzione o uso indipendente.
+
+4. Garanzie
+
+4.1. Il Proprietario non fornisce garanzie esplicite o implicite riguardo al funzionamento del Software. L'Utente utilizza il Software a proprio rischio.
+
+5. Responsabilità
+
+5.1. Il Proprietario non è responsabile per i danni che possono derivare dall'uso del Software, inclusa la perdita di dati, la perdita finanziaria o altri tipi di danni.
+
+6. Disposizioni Finali
+
+6.1. Questo Contratto entra in vigore dall'installazione del Software e rimane in vigore fino a quando viene terminato dall'Utente o dal Proprietario.
+
+6.2. L'Utente può terminare questo Contratto in qualsiasi momento disinstallando il Software.
+
+6.3. Il Proprietario può terminare questo Contratto nel caso in cui l'Utente violi le sue disposizioni.

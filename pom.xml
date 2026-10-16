@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <groupId>app.leadya</groupId>
+    <artifactId>leadya-installer</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+    <packaging>pom</packaging>
+    <name>LeadYa installer</name>
+    <licenses><license><name>Apache License 2.0</name><url>https://www.apache.org/licenses/LICENSE-2.0</url><distribution>repo</distribution></license></licenses>
+    <properties>
+        <installer.python>python3</installer.python>
+        <installer.compiler>makensis</installer.compiler>
+        <installer.backend>https://backend.turbot.pro</installer.backend>
+        <installer.origin>https://hotfix.turbot.pro</installer.origin>
+        <installer.chromium>142</installer.chromium>
+        <installer.skipBuild>false</installer.skipBuild>
+        <installer.sourceDirectory>${project.basedir}</installer.sourceDirectory>
+        <installer.output>${project.build.directory}/LeadyaInstaller.exe</installer.output>
+        <installer.plugins>${project.basedir}/plugins</installer.plugins>
+    </properties>
+    <build><plugins><plugin>
+        <groupId>org.codehaus.mojo</groupId><artifactId>exec-maven-plugin</artifactId><version>3.5.0</version>
+        <executions>
+            <execution><id>installer-tests</id><phase>test</phase><goals><goal>exec</goal></goals><configuration>
+                <executable>${installer.python}</executable><workingDirectory>${project.basedir}</workingDirectory>
+                <arguments><argument>-m</argument><argument>unittest</argument><argument>-v</argument><argument>test_build</argument></arguments>
+            </configuration></execution>
+            <execution><id>installer-package</id><phase>package</phase><goals><goal>exec</goal></goals><configuration>
+                <skip>${installer.skipBuild}</skip><executable>${installer.python}</executable><workingDirectory>${project.basedir}</workingDirectory>
+                <arguments><argument>build.py</argument><argument>--compiler</argument><argument>${installer.compiler}</argument>
+                    <argument>--source-directory</argument><argument>${installer.sourceDirectory}</argument>
+                    <argument>--plugin-directory</argument><argument>${installer.plugins}</argument>
+                    <argument>--backend-url</argument><argument>${installer.backend}</argument><argument>--public-origin</argument><argument>${installer.origin}</argument>
+                    <argument>--chromium-version</argument><argument>${installer.chromium}</argument><argument>--output</argument><argument>${installer.output}</argument></arguments>
+            </configuration></execution>
+        </executions>
+    </plugin></plugins></build>
+    <profiles><profile><id>windows-python</id><activation><os><family>windows</family></os></activation>
+        <properties><installer.python>py</installer.python></properties>
+        <build><plugins><plugin><groupId>org.codehaus.mojo</groupId><artifactId>exec-maven-plugin</artifactId>
+            <executions>
+                <execution><id>windows-release-policy-tests</id><phase>test</phase><goals><goal>exec</goal></goals><configuration>
+                    <executable>powershell.exe</executable><arguments><argument>-NoProfile</argument><argument>-ExecutionPolicy</argument><argument>Bypass</argument><argument>-File</argument><argument>${project.basedir}/Test-InstallerReleaseSecurity.ps1</argument></arguments>
+                </configuration></execution>
+                <execution><id>windows-native-process-tests</id><phase>test</phase><goals><goal>exec</goal></goals><configuration>
+                    <executable>powershell.exe</executable><arguments><argument>-NoProfile</argument><argument>-ExecutionPolicy</argument><argument>Bypass</argument><argument>-File</argument><argument>${project.basedir}/Test-NativeProcessExitCode.ps1</argument></arguments>
+                </configuration></execution>
+            </executions>
+        </plugin></plugins></build>
+    </profile></profiles>
+</project>

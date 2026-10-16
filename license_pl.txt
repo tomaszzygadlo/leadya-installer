@@ -1,0 +1,38 @@
+﻿Copyright 2022-2026 Turbot sp z o.o. & Tomasz Żygadło
+
+LICENCJA UŻYTKOWANIA OPROGRAMOWANIA "Leadya"
+
+Niniejsza umowa (dalej "Umowa") jest zawierana między Tobą (dalej "Użytkownik"), a właścicielem oprogramowania "Leadya" (dalej "Właściciel") w sprawie korzystania z części instalowalnej aplikacji "Leadya" (dalej "Oprogramowanie"). Proszę uważnie zapoznać się z treścią Umowy przed zainstalowaniem i korzystaniem z Oprogramowania. Instalując lub korzystając z Oprogramowania, wyrażasz zgodę na przestrzeganie postanowień Umowy.
+
+1. Przedmiot Umowy
+
+1.1. Właściciel udziela Użytkownikowi ograniczonej licencji na korzystanie z Oprogramowania w celu logowania się na media społecznościowe użytkownika oraz wykonywania poleceń serwera Leadya.
+
+2. Prawa Autorskie i Własność Intelektualna
+
+2.1. Oprogramowanie oraz wszelkie prawa autorskie i własność intelektualna związane z Oprogramowaniem pozostają własnością Właściciela. Użytkownik nie ma prawa modyfikować, kopiować ani rozpowszechniać Oprogramowania bez zgody Właściciela.
+
+3. Ograniczenia
+
+3.1. Użytkownik nie ma prawa:
+a) Usuwać, modyfikować lub ukrywać żadnych oznaczeń praw autorskich Oprogramowania.
+b) Rozkładać Oprogramowania na części składowe w celu dystrybucji lub użytkowania oddzielnie.
+c) Wykorzystywać Oprogramowania w sposób naruszający przepisy prawa lub prawo innych osób.
+d) Wykorzystywać Oprogramowania w celach niezgodnych z jego przeznaczeniem.
+
+4. Gwarancje
+
+4.1. Właściciel nie udziela żadnych bezpośrednich ani pośrednich gwarancji co do działania Oprogramowania. Użytkownik korzysta z Oprogramowania na własne ryzyko.
+
+5. Odpowiedzialność
+
+5.1. Właściciel nie ponosi odpowiedzialności za szkody wynikłe z korzystania z Oprogramowania, w tym za utratę danych, straty finansowe lub inne szkody.
+
+6. Postanowienia Końcowe
+
+6.1. Umowa obowiązuje od momentu zainstalowania Oprogramowania i pozostaje w mocy do jej rozwiązania przez Użytkownika lub Właściciela.
+
+6.2. Użytkownik może rozwiązać Umowę w każdym czasie przez odinstalowanie Oprogramowania.
+
+6.3. Właściciel może rozwiązać Umowę w razie naruszenia jej postanowień przez Użytkownika.
+
