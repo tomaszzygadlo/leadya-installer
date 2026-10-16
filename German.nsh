@@ -32,3 +32,4 @@ LangString WARNING_jreRebootRequired ${LANG_GERMAN} "Der alte JRE-Ordner konnte 
 LangString INFO_manualRemovalInstructions ${LANG_GERMAN} "Bitte löschen Sie den folgenden Ordner manuell:$\r$\n$\r$\n$INSTDIR\jdk-17.0.9+9-jre$\r$\n$\r$\nKlicken Sie dann auf OK, um erneut zu versuchen."
 LangString QUESTION_jreRemovalComplete ${LANG_GERMAN} "Haben Sie das Löschen des JRE-Ordners abgeschlossen?$\r$\n$\r$\nKlicken Sie auf OK, um erneut zu versuchen, oder auf ABBRECHEN, um die Installation zu beenden."
 LangString ERROR_couldNotRemoveJre ${LANG_GERMAN} "Kann den JRE-Ordner nicht entfernen. Starten Sie bitte Ihren Computer neu und versuchen Sie die Installation erneut, oder löschen Sie manuell:$\r$\n$\r$\n$INSTDIR\jdk-17.0.9+9-jre"
+LangString RestoreDefaultLocation ${LANG_GERMAN} "Standardspeicherort wiederherstellen"

@@ -32,3 +32,4 @@ LangString WARNING_jreRebootRequired ${LANG_RUSSIAN} "Не удалось пол
 LangString INFO_manualRemovalInstructions ${LANG_RUSSIAN} "Пожалуйста, вручную удалите следующую папку:$\r$\n$\r$\n$INSTDIR\jdk-17.0.9+9-jre$\r$\n$\r$\nЗатем нажмите ОК для повторного попыт."
 LangString QUESTION_jreRemovalComplete ${LANG_RUSSIAN} "Вы закончили ручное удаление папки JRE?$\r$\n$\r$\nНажмите ОК, чтобы повторить попытку, или ОТМЕНА, чтобы прервать."
 LangString ERROR_couldNotRemoveJre ${LANG_RUSSIAN} "Не удается удалить папку JRE. Пожалуйста, перезагрузите компьютер и попробуйте установку снова, или вручную удалите:$\r$\n$\r$\n$INSTDIR\jdk-17.0.9+9-jre"
+LangString RestoreDefaultLocation ${LANG_RUSSIAN} "Восстановить расположение по умолчанию"

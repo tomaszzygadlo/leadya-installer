@@ -32,3 +32,4 @@ LangString WARNING_jreRebootRequired ${LANG_SPANISH} "No se pudo eliminar comple
 LangString INFO_manualRemovalInstructions ${LANG_SPANISH} "Por favor, elimine manualmente la siguiente carpeta:$\r$\n$\r$\n$INSTDIR\jdk-17.0.9+9-jre$\r$\n$\r$\nLuego haga clic en Aceptar para reintentar."
 LangString QUESTION_jreRemovalComplete ${LANG_SPANISH} "¿Ha terminado de eliminar manualmente la carpeta JRE?$\r$\n$\r$\nHaga clic en Aceptar para reintentar o CANCELAR para abortar."
 LangString ERROR_couldNotRemoveJre ${LANG_SPANISH} "No se puede eliminar la carpeta JRE. Por favor, reinicie su computadora e intente la instalación nuevamente, o elimine manualmente:$\r$\n$\r$\n$INSTDIR\jdk-17.0.9+9-jre"
+LangString RestoreDefaultLocation ${LANG_SPANISH} "Restaurar ubicación predeterminada"

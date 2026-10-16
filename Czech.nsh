@@ -32,3 +32,4 @@ LangString WARNING_jreRebootRequired ${LANG_CZECH} "Nelze zcela odebrat starou s
 LangString INFO_manualRemovalInstructions ${LANG_CZECH} "Prosím, ručně odstraňte následující složku:$\r$\n$\r$\n$INSTDIR\jdk-17.0.9+9-jre$\r$\n$\r$\nPak klikněte na OK a zkuste znovu."
 LangString QUESTION_jreRemovalComplete ${LANG_CZECH} "Skončili jste s ručním odstraňováním složky JRE?$\r$\n$\r$\nKlikněte na OK a zkuste znovu, nebo ZRUŠIT a přerušit."
 LangString ERROR_couldNotRemoveJre ${LANG_CZECH} "Nelze odebrat složku JRE. Prosím restartujte počítač a zkuste instalaci znovu, nebo ručně odstraňte:$\r$\n$\r$\n$INSTDIR\jdk-17.0.9+9-jre"
+LangString RestoreDefaultLocation ${LANG_CZECH} "Obnovit výchozí umístění"

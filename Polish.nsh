@@ -32,3 +32,4 @@ LangString WARNING_jreRebootRequired ${LANG_POLISH} "Nie udało się całkowicie
 LangString INFO_manualRemovalInstructions ${LANG_POLISH} "Proszę ręcznie usunąć następujący folder:$\r$\n$\r$\n$PROGRAMFILES64\Java\jdk-17.0.9+9-jre$\r$\n$\r$\nNastępnie kliknij OK, aby spróbować ponownie."
 LangString QUESTION_jreRemovalComplete ${LANG_POLISH} "Czy skończyłeś ręczne usuwanie folderu JRE?$\r$\n$\r$\nKliknij OK, aby spróbować ponownie, lub ANULUJ, aby przerwać."
 LangString ERROR_couldNotRemoveJre ${LANG_POLISH} "Nie udało się usunąć folderu JRE. Proszę uruchomić komputer ponownie i spróbować instalacji jeszcze raz, lub ręcznie usunąć:$\r$\n$\r$\n$PROGRAMFILES64\Java\jdk-17.0.9+9-jre"
+LangString RestoreDefaultLocation ${LANG_POLISH} "Przywróć domyślną lokalizację"

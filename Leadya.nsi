@@ -37,6 +37,16 @@ Var LocalCodeHome
 Var LocalTrustedHome
 Var LocalValidationSeed
 Var LocalCodeCleanup
+Var LocalDirectoryDialog
+Var LocalDirectoryPath
+Var LocalDirectoryRestore
+Var LocalDirectorySpace
+Var LocalDirectorySpaceReady
+
+!define LEADYA_DEFAULT_INSTALL_DIR "$PROGRAMFILES64\Leadya"
+!define LEADYA_LOCAL_INSTALL_SIZE_KB 15360
+!define /math LEADYA_LOCAL_INSTALL_SIZE_BYTES ${LEADYA_LOCAL_INSTALL_SIZE_KB} * 1024
+!define /math LEADYA_LOCAL_INSTALL_SIZE_MB ${LEADYA_LOCAL_INSTALL_SIZE_KB} / 1024
 
 !define LOCAL_INSTALL_STATE_KEY "Software\Leadya\Server"
 !define LEADYA_VALIDATOR_SHA256 "B5F711DCADE697DA77E45AA2D24D9F4C44DD9625D5CA1E0D0DEF5E69D482EBFA"
@@ -75,7 +85,7 @@ Unicode True
   VIAddVersionKey /LANG=1033 "LegalCopyright" "Copyright (c) Turbot sp. z o.o."
 
   ;Default installation folder
-  InstallDir "$PROGRAMFILES64\Leadya"
+  InstallDir "${LEADYA_DEFAULT_INSTALL_DIR}"
 
   ; A remembered path is selected only after completed-install validation in .onInit.
 
@@ -97,8 +107,9 @@ Unicode True
   !insertmacro MUI_PAGE_LICENSE "$(LicenseFile)"
 
 
-  !define MUI_PAGE_CUSTOMFUNCTION_LEAVE RequireLocalDestination
-  !insertmacro MUI_PAGE_DIRECTORY
+  ; Retain MUI translations; nsDialogs adds an explicit restore action to this page.
+  !define MUI_DIRECTORYPAGE
+  Page custom ShowLocalDirectoryPage LeaveLocalDirectoryPage
   !insertmacro MUI_PAGE_INSTFILES
   !define MUI_FINISHPAGE_RUN
   !define MUI_FINISHPAGE_RUN_FUNCTION RunInstalledLocalApplication
@@ -263,6 +274,136 @@ Function ResolveLocalRuntimeHome
   Quit
 FunctionEnd
 
+; BEGIN LOCAL DIRECTORY PAGE
+Function ShowLocalDirectoryPage
+  !insertmacro MUI_HEADER_TEXT "$(MUI_TEXT_DIRECTORY_TITLE)" "$(MUI_TEXT_DIRECTORY_SUBTITLE)"
+  nsDialogs::Create 1018
+  Pop $LocalDirectoryDialog
+  StrCmp $LocalDirectoryDialog "error" 0 +2
+  Abort
+  ${NSD_CreateLabel} 0 0 100% 40u "$(^DirText)"
+  Pop $0
+  ${NSD_CreateGroupBox} 0 45u 100% 43u "$(^DirSubText)"
+  Pop $0
+  ${NSD_CreateDirRequest} 8u 60u 220u 12u "$INSTDIR"
+  Pop $LocalDirectoryPath
+  ${NSD_OnChange} $LocalDirectoryPath LocalDirectoryChanged
+  ${NSD_CreateBrowseButton} 234u 59u 58u 14u "$(^BrowseBtn)"
+  Pop $0
+  ${NSD_OnClick} $0 BrowseLocalDirectory
+  ${NSD_CreateButton} 8u 94u 284u 16u "$(RestoreDefaultLocation)"
+  Pop $LocalDirectoryRestore
+  ${NSD_OnClick} $LocalDirectoryRestore RestoreDefaultLocalDirectory
+  ${NSD_CreateLabel} 0 120u 100% 10u "$(^SpaceRequired)${LEADYA_LOCAL_INSTALL_SIZE_MB} MB"
+  Pop $0
+  ${NSD_CreateLabel} 0 130u 100% 10u ""
+  Pop $LocalDirectorySpace
+  Call UpdateLocalDirectorySpace
+  nsDialogs::Show
+FunctionEnd
+
+Function ReadLocalDirectoryPath
+  Push $0
+  Push $1
+  Push $2
+  ; Normalize before assigning INSTDIR: NSIS otherwise strips forward slashes.
+  ${NSD_GetText} $LocalDirectoryPath $1
+  StrCpy $0 ""
+  LocalDirectoryNormalize:
+    StrCpy $2 $1 1
+    StrCmp $2 "" LocalDirectoryNormalized
+    StrCmp $2 "/" 0 +2
+    StrCpy $2 "\"
+    StrCpy $0 "$0$2"
+    StrCpy $1 $1 "" 1
+    Goto LocalDirectoryNormalize
+  LocalDirectoryNormalized:
+  StrCpy $INSTDIR $0
+  Pop $2
+  Pop $1
+  Pop $0
+FunctionEnd
+
+Function LocalDirectoryChanged
+  Pop $0
+  Call ReadLocalDirectoryPath
+  Call UpdateLocalDirectorySpace
+FunctionEnd
+
+Function BrowseLocalDirectory
+  Pop $0
+  nsDialogs::SelectFolderDialog "$(^DirBrowseText)" "$INSTDIR"
+  Pop $0
+  StrCmp $0 "error" LocalDirectoryBrowseDone
+  ${NSD_SetText} $LocalDirectoryPath "$0"
+  LocalDirectoryBrowseDone:
+FunctionEnd
+
+Function RestoreDefaultLocalDirectory
+  Pop $0
+  StrCpy $INSTDIR "${LEADYA_DEFAULT_INSTALL_DIR}"
+  ${NSD_SetText} $LocalDirectoryPath "$INSTDIR"
+  System::Call 'user32::SetFocus(p $LocalDirectoryPath)'
+FunctionEnd
+
+Function UpdateLocalDirectorySpace
+  Push $0
+  Push $1
+  Push $2
+  StrCpy $LocalDirectorySpaceReady "0"
+  ${NSD_SetText} $LocalDirectorySpace "$(^SpaceAvailable)?"
+  StrCpy $0 $INSTDIR
+  StrCmp $0 "" LocalDirectorySpaceDone
+  ; Query only absolute drive paths on a currently local writable drive type.
+  ; Final destination policy still checks reparse points and directory ownership.
+  StrCpy $1 $0 1 1
+  StrCmp $1 ":" 0 LocalDirectorySpaceDone
+  StrCpy $1 $0 1 2
+  StrCmp $1 "\" LocalDirectoryDriveRoot
+  StrCmp $1 "/" 0 LocalDirectorySpaceDone
+  LocalDirectoryDriveRoot:
+  StrCpy $1 $0 2
+  StrCpy $1 "$1\"
+  System::Call 'kernel32::GetDriveTypeW(w r1) i .r2'
+  StrCmp $2 "3" LocalDirectoryFindParent
+  StrCmp $2 "2" LocalDirectoryFindParent
+  StrCmp $2 "6" 0 LocalDirectorySpaceDone
+  LocalDirectoryFindParent:
+    IfFileExists "$0\*.*" LocalDirectoryQuerySpace
+    ${GetParent} "$0" $1
+    StrCmp $1 "" LocalDirectorySpaceDone
+    StrCmp $0 $1 LocalDirectorySpaceDone
+    StrCpy $0 $1
+    Goto LocalDirectoryFindParent
+  LocalDirectoryQuerySpace:
+    System::Call 'kernel32::GetDiskFreeSpaceExW(w r0, *l .r1, p 0, p 0) i .r2'
+    StrCmp $2 "0" LocalDirectorySpaceDone
+    System::Int64Op $1 / 1048576
+    Pop $2
+    ${NSD_SetText} $LocalDirectorySpace "$(^SpaceAvailable)$2 MB"
+    System::Int64Op $1 < ${LEADYA_LOCAL_INSTALL_SIZE_BYTES}
+    Pop $2
+    StrCmp $2 "1" LocalDirectorySpaceDone
+    StrCpy $LocalDirectorySpaceReady "1"
+  LocalDirectorySpaceDone:
+  GetDlgItem $0 $HWNDPARENT 1
+  EnableWindow $0 $LocalDirectorySpaceReady
+  Pop $2
+  Pop $1
+  Pop $0
+FunctionEnd
+
+Function LeaveLocalDirectoryPage
+  Call ReadLocalDirectoryPath
+  Call UpdateLocalDirectorySpace
+  StrCmp $LocalDirectorySpaceReady "1" 0 LocalDirectoryStay
+  Call RequireLocalDestination
+  Return
+  LocalDirectoryStay:
+  Abort
+FunctionEnd
+; END LOCAL DIRECTORY PAGE
+
 Function RequireLocalDestination
   ; The directory page can change $INSTDIR after .onInit selected the initial destination.
   Call TryResolveLocalRuntimeHome
@@ -278,7 +419,7 @@ FunctionEnd
 
 Function SelectCompletedLocalInstallation
   ; Preserve an explicit command-line /D destination.
-  StrCmp $INSTDIR "$PROGRAMFILES64\Leadya" 0 LocalSelectionDone
+  StrCmp $INSTDIR "${LEADYA_DEFAULT_INSTALL_DIR}" 0 LocalSelectionDone
   ReadRegDWORD $0 HKCU "${LOCAL_INSTALL_STATE_KEY}" "InstalledSuccessfully"
   StrCmp $0 "1" 0 LocalSelectionDone
   ReadRegStr $1 HKCU "${LOCAL_INSTALL_STATE_KEY}" ""
@@ -291,7 +432,7 @@ Function SelectCompletedLocalInstallation
   Call ValidateLocalInstallation
   StrCmp $LocalValidationResult "0" LocalSelectionDone
   LocalSelectionDefault:
-  StrCpy $INSTDIR "$PROGRAMFILES64\Leadya"
+  StrCpy $INSTDIR "${LEADYA_DEFAULT_INSTALL_DIR}"
   LocalSelectionDone:
 FunctionEnd
 
@@ -857,7 +998,7 @@ Function .onInit
   ;SectionSetFlags ${SecServer} ${SF_RO}
   SectionSetFlags ${SecProxy} ${SF_RO}
 
-  SectionSetSize ${SecServer} 15360
+  SectionSetSize ${SecServer} ${LEADYA_LOCAL_INSTALL_SIZE_KB}
 FunctionEnd
 
 
