@@ -1,0 +1,43 @@
+{
+  "compiler": {
+    "filename": "nsis-3.13-setup.exe",
+    "url": "https://prdownloads.sourceforge.net/nsis/nsis-3.13-setup.exe?download",
+    "sha256": "db9a1038bbc0e53fef24f423fd609979bd578e942f1be1198db186d1c42652a3",
+    "sourceforge_path": "/project/nsis/NSIS 3/3.13/nsis-3.13-setup.exe",
+    "compiler_sha256": "4ec390d0f96f9728507fbc2f4e91311dd90bfc6c8ddfe2159357b3651ae151c0"
+  },
+  "plugins": [
+    {
+      "filename": "AccessControl.zip",
+      "url": "https://nsis.sourceforge.io/mediawiki/images/4/4a/AccessControl.zip",
+      "sha256": "9aa60f9c5c023fda2808af216514d8913d2673bc522d944ee771da032a1bdc10",
+      "member": "Plugins/i386-unicode/AccessControl.dll",
+      "name": "AccessControl.dll",
+      "dll_sha256": "5fd5d8aec97cffaad9b7df6371b348d436cf1401e86fab614dc4cb8575428e52"
+    },
+    {
+      "filename": "Inetc.zip",
+      "url": "https://nsis.sourceforge.io/mediawiki/images/c/c9/Inetc.zip",
+      "sha256": "88d9dcffbe967df6ee9f5820f8199a673383e581bf650dbc35b94846314b1a4b",
+      "member": "Plugins/x86-unicode/INetC.dll",
+      "name": "INetC.dll",
+      "dll_sha256": "85e03805f90f72257dd41bfdaa186237218bbb0ec410ad3b6576a88ea11dccb9"
+    },
+    {
+      "filename": "NSISunzU.zip",
+      "url": "https://nsis.sourceforge.io/mediawiki/images/5/5a/NSISunzU.zip",
+      "sha256": "8c2b7ad6984e3137e4c51c763ec64cbd36364e72838b85e14fa287dac976c46b",
+      "member": "NSISunzU/Plugin unicode/nsisunz.dll",
+      "name": "nsisunz.dll",
+      "dll_sha256": "c31b590cba443de87f0f4a81712f0883ac3b506f3868759d918d9a81f84ea922"
+    },
+    {
+      "filename": "ShellExecAsUserUnicodeUpdate.zip",
+      "url": "https://nsis.sourceforge.io/mediawiki/images/1/1d/ShellExecAsUserUnicodeUpdate.zip",
+      "sha256": "79bdd3e54a9ba9c30af85557b475d2322286f8726687f2e23afa772aac6049ab",
+      "member": "unicode/ShellExecAsUser.dll",
+      "name": "ShellExecAsUser.dll",
+      "dll_sha256": "1f17e4d5ffe7b2c9a396ee9932ac5198f0c050241e5f9ccd3a56e576613d8a29"
+    }
+  ]
+}

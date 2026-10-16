@@ -7,7 +7,18 @@ This repository contains no private application history, signing keys or custome
 A successful source build is not a signed release or an antivirus clearance. See [SECURITY.md](SECURITY.md) and
 the dependency/license limitations in [DEPENDENCIES.md](DEPENDENCIES.md).
 
+## Code signing policy
+
+SignPath Foundation approval and signing setup are pending; the project is not yet
+approved and CI packages remain unsigned assessment builds. Read the
+[code signing policy and installer privacy information](CODE_SIGNING_POLICY.md).
+The separately licensed LeadYa application is outside this signing request.
+
 ## Build
+
+Public [Windows CI builds](https://github.com/tomaszzygadlo/leadya-installer/actions/workflows/build.yml)
+include the installer, its checksum and build provenance. These are unsigned assessment
+artifacts, not Foundation-approved releases; artifact downloads require a GitHub login.
 
 Install the dependencies described in [DEPENDENCIES.md](DEPENDENCIES.md), then run:
 

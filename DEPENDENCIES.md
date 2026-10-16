@@ -1,5 +1,12 @@
 # Build dependencies
 
+The [Windows CI workflow](.github/workflows/build.yml) prepares the exact official
+archives and Unicode DLLs pinned in [ci-dependencies.json](ci-dependencies.json).
+It extracts the NSIS setup archive with the runner's 7-Zip without executing setup.
+`ci_bootstrap.py` verifies archive, compiler and DLL SHA-256 values before compilation;
+it never installs system software or changes antivirus settings. Local builds may
+continue to provide their own compatible compiler/plugins as described below.
+
 - Python 3.9 or later, standard library only.
 - Maven 3.6.3 or later for the optional Maven entry point (3.9 is recommended).
 - Stable NSIS 3.13 or later from https://nsis.sourceforge.io/Download.
