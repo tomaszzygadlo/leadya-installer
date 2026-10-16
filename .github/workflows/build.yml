@@ -1,0 +1,64 @@
+name: Unsigned Windows installer build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-2025
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+      - name: Check dependency download boundaries
+        run: python -m unittest -v test_ci_bootstrap
+      - name: Prepare pinned official compiler and plugins
+        run: python ci_bootstrap.py --output "$env:RUNNER_TEMP\leadya-nsis" --seven-zip "C:\Program Files\7-Zip\7z.exe"
+      - name: Build and test through Maven
+        shell: pwsh
+        run: |
+          $sdk = Get-Content "$env:RUNNER_TEMP\leadya-nsis\ci-sdk.json" -Raw | ConvertFrom-Json
+          mvn -B --no-transfer-progress clean verify "-Dinstaller.python=python" "-Dinstaller.compiler=$($sdk.compiler)" "-Dinstaller.plugins=$($sdk.plugins)"
+      - name: Record unsigned artifact provenance
+        shell: pwsh
+        run: |
+          $file = Get-Item target/LeadyaInstaller.exe
+          $signature = Get-AuthenticodeSignature -LiteralPath $file.FullName
+          $build = Get-Content target/LeadyaInstaller.build.json -Raw | ConvertFrom-Json
+          $hash = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($signature.Status.ToString() -ne 'NotSigned' -or $build.publication_ready -ne $false -or $build.artifact_sha256 -ne $hash) {
+            throw 'Unexpected signature or build-manifest mismatch'
+          }
+          @{
+            source_commit = $env:GITHUB_SHA
+            run_url = "$env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID"
+            artifact_sha256 = $hash
+            artifact_bytes = $file.Length
+            authenticode_status = $signature.Status.ToString()
+            publication_ready = $false
+            signpath_configured = $false
+          } | ConvertTo-Json | Set-Content target/ci-provenance.json -Encoding utf8
+          "$hash  LeadyaInstaller.exe" | Set-Content target/SHA256SUMS.txt -Encoding ascii
+          Copy-Item "$env:RUNNER_TEMP\leadya-nsis\ci-sdk.json" target/ci-sdk.json
+          'Unsigned assessment build. SignPath enrollment and release signing are not configured.' >> $env:GITHUB_STEP_SUMMARY
+          '[Code signing policy](https://github.com/tomaszzygadlo/leadya-installer/blob/main/CODE_SIGNING_POLICY.md)' >> $env:GITHUB_STEP_SUMMARY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: leadya-installer-unsigned-${{ github.sha }}
+          path: target/*
+          if-no-files-found: error
+          retention-days: 14
