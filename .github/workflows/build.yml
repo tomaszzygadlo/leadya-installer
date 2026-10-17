@@ -11,7 +11,9 @@ permissions:
 
 jobs:
   build:
-    runs-on: windows-2025
+    # This image keeps Defender enabled; the Server image disables it for performance.
+    # Assessment still refuses any remaining exceptions or unsupported scanner policy.
+    runs-on: windows-11-arm
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
