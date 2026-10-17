@@ -6,11 +6,15 @@ import subprocess
 import tempfile
 import time
 import unittest
+import hashlib
+import http.server
+import threading
+import importlib.util
 
 SOURCE = Path(__file__).resolve().parents[1]
 if not (SOURCE / "Leadya.nsi").is_file():
     SOURCE = Path(__file__).resolve().parent
-NSIS = Path(os.environ.get("ProgramFiles(x86)", "C:/Program Files (x86)")) / "NSIS/makensis.exe"
+NSIS = None
 
 
 def capture_fixture_window(pid, output):
@@ -77,6 +81,18 @@ def capture_fixture_window(pid, output):
 
 @unittest.skipUnless(os.name == "nt", "Native Windows NSIS UI is required")
 class InstallerDirectoryTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        global NSIS
+        spec = importlib.util.spec_from_file_location('installer_ui_build', Path(__file__).with_name('build.py'))
+        builder = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(builder)
+        configured = os.environ.get('LEADYA_NSIS_COMPILER') or str(
+            Path(os.environ.get('ProgramFiles(x86)', 'C:/Program Files (x86)')) / 'NSIS/makensis.exe')
+        compiler, version = builder.resolve_compiler(configured)
+        NSIS = Path(compiler)
+        print('Native UI compiler:', version, builder.sha256(NSIS), flush=True)
+
     def test_real_button_reset_and_back_navigation_without_installing(self):
         source = (SOURCE / "Leadya.nsi").read_text(encoding="utf-8-sig")
         page = source.split("; BEGIN LOCAL DIRECTORY PAGE", 1)[1].split("; END LOCAL DIRECTORY PAGE", 1)[0]
@@ -200,9 +216,11 @@ SectionEnd
             script = script.replace("@REPORT@", str(report)).replace("@DIRECTORY_CONSTANTS@", constants).replace("@MISSING@", base.as_posix() + "/not-created/child") + page
             nsi = base / "directory.nsi"
             nsi.write_text('OutFile "' + str(exe) + '"\n' + script, encoding="utf-8-sig")
-            compiled = subprocess.run([str(NSIS), "/V2", str(nsi)], capture_output=True, text=True, timeout=30)
+            compiled = subprocess.run([str(NSIS), "/V2", str(nsi)], capture_output=True, text=True, timeout=30,
+                                      creationflags=subprocess.CREATE_NO_WINDOW)
             self.assertEqual(0, compiled.returncode, compiled.stdout + compiled.stderr)
-            with subprocess.Popen([str(exe)], stdout=subprocess.PIPE, stderr=subprocess.PIPE) as process:
+            with subprocess.Popen([str(exe)], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                  creationflags=subprocess.CREATE_NO_WINDOW) as process:
                 try:
                     screenshot = os.environ.get("LEADYA_DIRECTORY_SCREENSHOT")
                     if screenshot:
@@ -215,6 +233,80 @@ SectionEnd
                 self.assertEqual(0, process.returncode, "Native fixture exit code identifies the failed UI assertion")
             self.assertTrue(report.read_text().startswith("PASS:"))
 
+    def test_actual_download_is_visible_and_keeps_the_downloaded_bytes(self):
+        source = (SOURCE / 'Leadya.nsi').read_text(encoding='utf-8-sig')
+        if os.environ.get('LEADYA_TEST_HIDE_DOWNLOAD_STATUS'):
+            source = source.replace('  DetailPrint "$(LOG_downloadingCheckingProgram)"\n', '')
+        download = re.search(r'  DetailPrint "\$\(LOG_downloadingCheckingProgram\)"\n'
+                             r'  inetc::get /CAPTION "\$\(LOG_downloadingCheckingProgram\)" /POPUP "CheckingProgram" '
+                             r'"\$\{url\}/CheckingProgram.jar" "\$CheckingProgramDownloadFile" /END\n'
+                             r'  Pop \$0', source)
+        self.assertIsNotNone(download, 'The actual transfer must display its download stage before INetC starts')
+        language_file = SOURCE / 'Language/Polish.nsh'
+        if not language_file.is_file():
+            language_file = SOURCE / 'Polish.nsh'  # The public bundle has a flat input layout.
+        labels = language_file.read_text(encoding='utf-8-sig')
+        stage = re.search(r'^LangString LOG_downloadingCheckingProgram .*$', labels, re.MULTILINE).group(0)
+        payload = b'[TEST]-LeadYa-visible-transfer\n' * 4096
+        requested, release = threading.Event(), threading.Event()
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(200)
+                self.send_header('Content-Length', str(len(payload)))
+                self.end_headers()
+                requested.set()
+                if not release.wait(10):
+                    return
+                self.wfile.write(payload)
+
+            def log_message(self, *_):
+                pass
+
+        with tempfile.TemporaryDirectory(prefix='leadya-transfer-owned-', dir=Path.home() / 'Downloads') as folder:
+            base = Path(folder)
+            target, exe, nsi = base / 'download.jar', base / 'transfer.exe', base / 'transfer.nsi'
+            with http.server.ThreadingHTTPServer(('127.0.0.1', 0), Handler) as server:
+                thread = threading.Thread(target=server.serve_forever, daemon=True)
+                thread.start()
+                script = ('Unicode true\nName "LeadYa [TEST] download"\nRequestExecutionLevel user\n'
+                          '!include MUI2.nsh\n!insertmacro MUI_PAGE_INSTFILES\n!insertmacro MUI_LANGUAGE Polish\n'
+                          'ShowInstDetails show\nVar CheckingProgramDownloadFile\n'
+                          + ('!addplugindir "' + str(SOURCE / 'plugins') + '"\n'
+                             if (SOURCE / 'plugins').is_dir() else '')
+                          + '!define url "http://127.0.0.1:' + str(server.server_port) + '"\n'
+                          'OutFile "' + str(exe) + '"\n' + stage + '\nSection\n'
+                          'StrCpy $CheckingProgramDownloadFile "' + str(target) + '"\n'
+                          + download.group(0) + '\nStrCmp $0 "OK" +3\nSetErrorLevel 12\nAbort\n'
+                          'SetErrorLevel 0\nQuit\nSectionEnd\n'
+                          'Function .onInstSuccess\nSetErrorLevel 0\nQuit\nFunctionEnd\n')
+                nsi.write_text(script, encoding='utf-8-sig')
+                compiled = subprocess.run([str(NSIS), '/V2', str(nsi)], capture_output=True, text=True, timeout=30,
+                                          creationflags=subprocess.CREATE_NO_WINDOW)
+                self.assertEqual(0, compiled.returncode, compiled.stdout + compiled.stderr)
+                try:
+                    with subprocess.Popen([str(exe)], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                          creationflags=subprocess.CREATE_NO_WINDOW) as process:
+                        try:
+                            self.assertTrue(requested.wait(15), 'The native INetC call must reach the owned HTTP fixture')
+                            screenshot = os.environ.get('LEADYA_DOWNLOAD_SCREENSHOT')
+                            if screenshot:
+                                capture_fixture_window(process.pid, screenshot)
+                            release.set()
+                            process.communicate(timeout=30)
+                        except BaseException:
+                            release.set()
+                            process.kill()
+                            process.communicate()
+                            raise
+                        self.assertEqual(0, process.returncode, 'The actual download must complete successfully')
+                finally:
+                    release.set()
+                    server.shutdown()
+                    thread.join(timeout=5)
+                self.assertEqual(hashlib.sha256(payload).digest(), hashlib.sha256(target.read_bytes()).digest(),
+                                 'Visible progress must not change the transferred bytes')
+
 
 if __name__ == "__main__":
-    unittest.main()
+    unittest.main(failfast=True)

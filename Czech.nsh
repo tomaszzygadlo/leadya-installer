@@ -33,3 +33,11 @@ LangString INFO_manualRemovalInstructions ${LANG_CZECH} "Prosím, ručně odstra
 LangString QUESTION_jreRemovalComplete ${LANG_CZECH} "Skončili jste s ručním odstraňováním složky JRE?$\r$\n$\r$\nKlikněte na OK a zkuste znovu, nebo ZRUŠIT a přerušit."
 LangString ERROR_couldNotRemoveJre ${LANG_CZECH} "Nelze odebrat složku JRE. Prosím restartujte počítač a zkuste instalaci znovu, nebo ručně odstraňte:$\r$\n$\r$\n$INSTDIR\jdk-17.0.9+9-jre"
 LangString RestoreDefaultLocation ${LANG_CZECH} "Obnovit výchozí umístění"
+
+LangString LOG_checkingProgramVersion ${LANG_CZECH} "Kontrola verze programu..."
+LangString LOG_downloadingCheckingProgram ${LANG_CZECH} "Stahování CheckingProgram..."
+LangString LOG_downloadedCheckingProgram ${LANG_CZECH} "CheckingProgram byl stažen."
+LangString LOG_verifyingInstallation ${LANG_CZECH} "Ověřování instalace..."
+LangString LOG_finishingInstallation ${LANG_CZECH} "Dokončování instalace..."
+LangString LOG_sharedShortcutDeferred ${LANG_CZECH} "Společný zástupce není dostupný. Spusťte LeadYa pomocí:"
+LangString LOG_downloadingJre ${LANG_CZECH} "Stahování prostředí Java..."

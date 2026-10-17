@@ -33,3 +33,11 @@ LangString INFO_manualRemovalInstructions ${LANG_POLISH} "Proszę ręcznie usun�
 LangString QUESTION_jreRemovalComplete ${LANG_POLISH} "Czy skończyłeś ręczne usuwanie folderu JRE?$\r$\n$\r$\nKliknij OK, aby spróbować ponownie, lub ANULUJ, aby przerwać."
 LangString ERROR_couldNotRemoveJre ${LANG_POLISH} "Nie udało się usunąć folderu JRE. Proszę uruchomić komputer ponownie i spróbować instalacji jeszcze raz, lub ręcznie usunąć:$\r$\n$\r$\n$PROGRAMFILES64\Java\jdk-17.0.9+9-jre"
 LangString RestoreDefaultLocation ${LANG_POLISH} "Przywróć domyślną lokalizację"
+
+LangString LOG_checkingProgramVersion ${LANG_POLISH} "Sprawdzanie wersji programu..."
+LangString LOG_downloadingCheckingProgram ${LANG_POLISH} "Pobieranie CheckingProgram..."
+LangString LOG_downloadedCheckingProgram ${LANG_POLISH} "Pobrano CheckingProgram."
+LangString LOG_verifyingInstallation ${LANG_POLISH} "Weryfikowanie instalacji..."
+LangString LOG_finishingInstallation ${LANG_POLISH} "Kończenie instalacji..."
+LangString LOG_sharedShortcutDeferred ${LANG_POLISH} "Wspólny skrót niedostępny. Uruchom LeadYa z pliku:"
+LangString LOG_downloadingJre ${LANG_POLISH} "Pobieranie środowiska Java..."

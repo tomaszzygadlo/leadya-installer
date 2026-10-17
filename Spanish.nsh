@@ -33,3 +33,11 @@ LangString INFO_manualRemovalInstructions ${LANG_SPANISH} "Por favor, elimine ma
 LangString QUESTION_jreRemovalComplete ${LANG_SPANISH} "¿Ha terminado de eliminar manualmente la carpeta JRE?$\r$\n$\r$\nHaga clic en Aceptar para reintentar o CANCELAR para abortar."
 LangString ERROR_couldNotRemoveJre ${LANG_SPANISH} "No se puede eliminar la carpeta JRE. Por favor, reinicie su computadora e intente la instalación nuevamente, o elimine manualmente:$\r$\n$\r$\n$INSTDIR\jdk-17.0.9+9-jre"
 LangString RestoreDefaultLocation ${LANG_SPANISH} "Restaurar ubicación predeterminada"
+
+LangString LOG_checkingProgramVersion ${LANG_SPANISH} "Comprobando la versión..."
+LangString LOG_downloadingCheckingProgram ${LANG_SPANISH} "Descargando CheckingProgram..."
+LangString LOG_downloadedCheckingProgram ${LANG_SPANISH} "CheckingProgram descargado."
+LangString LOG_verifyingInstallation ${LANG_SPANISH} "Verificando la instalación..."
+LangString LOG_finishingInstallation ${LANG_SPANISH} "Finalizando la instalación..."
+LangString LOG_sharedShortcutDeferred ${LANG_SPANISH} "Acceso directo compartido no disponible. Inicie LeadYa con:"
+LangString LOG_downloadingJre ${LANG_SPANISH} "Descargando Java..."

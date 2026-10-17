@@ -49,7 +49,7 @@ Var LocalDirectorySpaceReady
 !define /math LEADYA_LOCAL_INSTALL_SIZE_MB ${LEADYA_LOCAL_INSTALL_SIZE_KB} / 1024
 
 !define LOCAL_INSTALL_STATE_KEY "Software\Leadya\Server"
-!define LEADYA_VALIDATOR_SHA256 "B5F711DCADE697DA77E45AA2D24D9F4C44DD9625D5CA1E0D0DEF5E69D482EBFA"
+!define LEADYA_VALIDATOR_SHA256 "01F4E3C836BD359D86D9FA6D7E90F30B34B5FBDA20B94093FE580A9B2D7EFF0A"
 !define LEADYA_TRUSTED_DOWNLOADS
 ; Elevated downloads use an admin-owned package, never a writable code folder or per-user runtime.
 !define LEADYA_INSTALL_DOWNLOAD_DIR "$LocalTrustedHome"
@@ -822,6 +822,7 @@ SectionIn 1
   ; The elevated phase never initializes user-owned runtime data.
   DetailPrint $(LOG_installingLeadyaServer)
 
+  DetailPrint "$(LOG_checkingProgramVersion)"
   ${LogLine} "(SecServer) Downloading CheckingProgram version from ${url}/currentClientVersion"
   ClearErrors
   Call AllocateLocalDownload
@@ -852,7 +853,8 @@ SectionIn 1
   ${StrRep} $CheckingProgramDownloadFile $CheckingProgramDownloadFile "$\n" ""
 
   ${LogLine} "(SecServer) Downloading Leadya Server from ${url}/CheckingProgram.jar to $CheckingProgramVersionedJar"
-  inetc::get "${url}/CheckingProgram.jar" "$CheckingProgramDownloadFile" /END
+  DetailPrint "$(LOG_downloadingCheckingProgram)"
+  inetc::get /CAPTION "$(LOG_downloadingCheckingProgram)" /POPUP "CheckingProgram" "${url}/CheckingProgram.jar" "$CheckingProgramDownloadFile" /END
   Pop $0
   StrCmp $0 "OK" LeadyaOk
   ${LogLine} "(SecServer) Downloading Leadya failed"
@@ -861,6 +863,7 @@ SectionIn 1
   MessageBox MB_OK|MB_ICONEXCLAMATION "$(ERROR_somethingWentWrong) $0" /SD IDOK
   Abort
   LeadyaOk:
+  DetailPrint "$(LOG_downloadedCheckingProgram)"
   ${LogLine} "(SecServer) Downloading Leadya finished"
   ClearErrors
   StrCpy $LocalValidationJar "CheckingProgram-$CheckingProgramVersion.jar"
@@ -872,6 +875,9 @@ SectionIn 1
   IfErrors LocalPayloadFailure
   File /oname=$LocalTrustedHome\LaunchLocalLeadYa.ps1 "LaunchLocalLeadYa.ps1"
   File /oname=$LocalTrustedHome\ValidateLocalInstall.ps1 "ValidateLocalInstall.ps1"
+  File /oname=$LocalTrustedHome\LocalProfileRecovery.ps1 "LocalProfileRecovery.ps1"
+  File /oname=$LocalTrustedHome\LaunchLocalLeadYa.vbs "LaunchLocalLeadYa.vbs"
+  File /oname=$LocalTrustedHome\leadya-nova-icon.ico "leadya-nova-icon.ico"
   File /oname=$LocalTrustedHome\ThirdPartyNotices.txt "ThirdPartyNotices.txt"
   FileOpen $1 "$LocalTrustedHome\leadya-local-origin.txt" w
   FileWrite $1 "${public_origin}$\r$\n"
@@ -892,6 +898,7 @@ SectionIn 1
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Leadya" \
                  "UninstallString" "$\"$LocalTrustedHome\Uninstall.exe$\""
   StrCpy $LocalValidationJar "CheckingProgram-$CheckingProgramVersion.jar"
+  DetailPrint "$(LOG_verifyingInstallation)"
   StrCpy $LocalValidationMode "Installable"
   Call ValidateLocalInstallation
   ${LogLine} "(SecServer) Final validation: $LocalValidationResult $LocalValidationOutput"
@@ -915,7 +922,7 @@ SectionEnd
 Function RunInstalledLocalApplication
   ; The installation is complete. Cancellation/offline authentication never rolls it back.
   SetOutPath "$LocalTrustedHome"
-  ShellExecAsUser::ShellExecAsUser "open" "$LocalTrustedHome\LeadyaCheckingProgram.bat" "" SW_SHOWMINIMIZED
+  ShellExecAsUser::ShellExecAsUser "open" "$SYSDIR\wscript.exe" '$"$LocalTrustedHome\LaunchLocalLeadYa.vbs$"' SW_HIDE
 FunctionEnd
 
 ;--------------------------------
@@ -941,19 +948,30 @@ SectionEnd
 Section "-Commit completed installation" SecLocalCommit
 SectionIn 1
   StrCmp $LocalInstallationVerified "1" 0 LocalInstallationSuccessDone
+  DetailPrint "$(LOG_finishingInstallation)"
   ; Publish the launch version only after the complete payload passed the real startup policy.
   StrCpy $LocalValidationMode "Publish"
   Call ValidateLocalInstallation
+  ${LogLine} "(SecLocalCommit) Publish: $LocalValidationResult $LocalValidationOutput"
   StrCmp $LocalValidationResult "0" 0 LocalInstallationCommitFailed
   StrCpy $LocalValidationMode "Mirror"
   Call ValidateLocalInstallation
+  ${LogLine} "(SecLocalCommit) Mirror: $LocalValidationResult $LocalValidationOutput"
   StrCmp $LocalValidationResult "0" 0 LocalInstallationCommitFailed
   StrCpy $LocalValidationMode "Links"
   Call ValidateLocalInstallation
+  ${LogLine} "(SecLocalCommit) Links: $LocalValidationResult $LocalValidationOutput"
   StrCmp $LocalValidationResult "0" 0 LocalInstallationCommitFailed
+  ${StrRep} $LocalValidationOutput $LocalValidationOutput "$\r" ""
+  ${StrRep} $LocalValidationOutput $LocalValidationOutput "$\n" ""
+  StrCmp $LocalValidationOutput "LOCAL_LINKS_DEFERRED" 0 LocalSharedLinksDone
+  DetailPrint "$(LOG_sharedShortcutDeferred)"
+  DetailPrint "$LocalTrustedHome\LaunchLocalLeadYa.vbs"
+  LocalSharedLinksDone:
   ClearErrors
   Call CommitCompletedLocalInstallation
   IfErrors LocalInstallationCommitFailed
+  ${LogLine} "(SecLocalCommit) Installation state committed; environment policy completed"
   LocalInstallationSuccessDone:
   Goto LocalInstallationCommitDone
   LocalInstallationCommitFailed:
@@ -1051,6 +1069,9 @@ Section "Uninstall" SecUninstallServer
   Delete /REBOOTOK "$INSTDIR\LeadyaCheckingProgram.bat"
   Delete /REBOOTOK "$INSTDIR\LaunchLocalLeadYa.ps1"
   Delete /REBOOTOK "$INSTDIR\ValidateLocalInstall.ps1"
+  Delete /REBOOTOK "$INSTDIR\LocalProfileRecovery.ps1"
+  Delete /REBOOTOK "$INSTDIR\LaunchLocalLeadYa.vbs"
+  Delete /REBOOTOK "$INSTDIR\leadya-nova-icon.ico"
   Delete /REBOOTOK "$INSTDIR\leadya-local-origin.txt"
   Delete /REBOOTOK "$INSTDIR\leadya-runtime-home.txt"
   Delete /REBOOTOK "$INSTDIR\leadya-code-home.txt"
@@ -1081,6 +1102,9 @@ Section "Uninstall" SecUninstallServer
   Delete /REBOOTOK "$LocalTrustedHome\LeadyaCheckingProgram.bat"
   Delete /REBOOTOK "$LocalTrustedHome\LaunchLocalLeadYa.ps1"
   Delete /REBOOTOK "$LocalTrustedHome\ValidateLocalInstall.ps1"
+  Delete /REBOOTOK "$LocalTrustedHome\LocalProfileRecovery.ps1"
+  Delete /REBOOTOK "$LocalTrustedHome\LaunchLocalLeadYa.vbs"
+  Delete /REBOOTOK "$LocalTrustedHome\leadya-nova-icon.ico"
   Delete /REBOOTOK "$LocalTrustedHome\ThirdPartyNotices.txt"
   Delete /REBOOTOK "$LocalTrustedHome\leadya-code-home.txt"
   Delete /REBOOTOK "$LocalTrustedHome\leadya-local-origin.txt"

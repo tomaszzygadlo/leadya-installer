@@ -19,5 +19,8 @@
   "license_pl.txt": "Docs/license_pl.txt",
   "license_ru.txt": "Docs/license_ru.txt",
   "license_ua.txt": "Docs/license_ua.txt",
-  "ThirdPartyNotices.txt": "ThirdPartyNotices.txt"
+  "ThirdPartyNotices.txt": "ThirdPartyNotices.txt",
+  "LocalProfileRecovery.ps1": "LocalProfileRecovery.ps1",
+  "LaunchLocalLeadYa.vbs": "LaunchLocalLeadYa.vbs",
+  "leadya-nova-icon.ico": "leadya-nova-icon.ico"
 }

@@ -165,20 +165,28 @@ def verify_validator_pin(template, source):
         raise ValueError('LOCAL validator pin differs from the exact helper bytes')
 
 
-def compile_script(script, compiler='makensis', working_directory=None, version=None):
+def resolve_compiler(compiler='makensis'):
+    """Verify the same stable SDK requirement for release builds and native test fixtures."""
     compiler = shutil.which(compiler)
     if not compiler:
         raise ValueError('NSIS compiler unavailable; install NSIS 3.13 or later')
     prefix = '/' if os.name == 'nt' else '-'
     result = subprocess.run([compiler, prefix + 'VERSION'], capture_output=True, text=True,
-                            check=True, timeout=15)
+                            check=True, timeout=15, **({'creationflags': subprocess.CREATE_NO_WINDOW} if os.name == 'nt' else {}))
     sdk_version = result.stdout.strip()
     match = re.fullmatch(r'v?(\d+)\.(\d+)(?:\.(\d+))?', sdk_version)
     if not match or tuple(int(x or 0) for x in match.groups()) < (3, 13, 0):
         raise ValueError('Supported stable NSIS >=3.13 required; observed ' + sdk_version)
+    return compiler, sdk_version
+
+
+def compile_script(script, compiler='makensis', working_directory=None, version=None):
+    compiler, sdk_version = resolve_compiler(compiler)
+    prefix = '/' if os.name == 'nt' else '-'
     definitions = [prefix + 'DLEADYA_INSTALLER_VERSION=' + installer_version(version)] if version else []
     subprocess.run([compiler, prefix + 'NOCONFIG', prefix + 'NOCD'] + definitions + [str(Path(script).resolve())],
-                   cwd=working_directory, check=True, timeout=300)
+                   cwd=working_directory, check=True, timeout=300,
+                   **({'creationflags': subprocess.CREATE_NO_WINDOW} if os.name == 'nt' else {}))
     return {'version': sdk_version, 'compiler_sha256': sha256(compiler)}
 
 
@@ -193,10 +201,15 @@ def main():
     parser.add_argument('--public-origin', default='https://hotfix.turbot.pro')
     parser.add_argument('--chromium-version', default='142')
     parser.add_argument('--compiler', default='makensis')
+    parser.add_argument('--verify-compiler', action='store_true', help='Verify the SDK without compiling or executing a fixture')
     parser.add_argument('--installer-version', help='Four-part Windows file version; defaults to installer-version.txt')
     parser.add_argument('--plugin-directory', type=Path)
     parser.add_argument('--allow-loopback-http', action='store_true', help='Allow HTTP only for explicit localhost/loopback development variants')
     options = parser.parse_args()
+    if options.verify_compiler:
+        compiler, sdk_version = resolve_compiler(options.compiler)
+        print(json.dumps({'compiler': compiler, 'version': sdk_version, 'sha256': sha256(compiler)}))
+        return
     source = options.source_directory.resolve()
     if options.verify_snapshot:
         commit = verify_snapshot(source, options.verify_snapshot)

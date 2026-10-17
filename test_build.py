@@ -5,6 +5,7 @@ import tempfile
 import unittest
 import subprocess
 import sys
+import os
 from unittest.mock import patch
 from types import SimpleNamespace
 
@@ -14,6 +15,28 @@ spec.loader.exec_module(build)
 
 
 class BuildBoundaryTests(unittest.TestCase):
+    def test_native_fixture_resolver_rejects_old_and_preview_sdks(self):
+        for version in ('v3.09', 'v3.12', 'v3.13rc1', 'unversioned'):
+            with self.subTest(version=version), patch.object(build.shutil, 'which', return_value='makensis'), \
+                    patch.object(build.subprocess, 'run', return_value=SimpleNamespace(stdout=version)) as run:
+                with self.assertRaisesRegex(ValueError, 'Supported stable NSIS'):
+                    build.resolve_compiler('makensis')
+                self.assertEqual(1, run.call_count, 'Only the version probe may run before unsupported SDK rejection')
+
+    def test_compiler_preflight_reports_identity_without_compiling(self):
+        import contextlib
+        import io
+        output = io.StringIO()
+        with patch.object(sys, 'argv', ['build.py', '--verify-compiler', '--compiler', 'makensis']), \
+                patch.object(build.shutil, 'which', return_value='makensis'), \
+                patch.object(build, 'sha256', return_value='a' * 64), \
+                patch.object(build.subprocess, 'run', return_value=SimpleNamespace(stdout='v3.13\n')) as run, \
+                contextlib.redirect_stdout(output):
+            build.main()
+        self.assertEqual({'compiler': 'makensis', 'version': 'v3.13', 'sha256': 'a' * 64}, json.loads(output.getvalue()))
+        self.assertEqual(1, run.call_count, 'Preflight must not compile or execute a fixture')
+        self.assertTrue(run.call_args.args[0][-1].endswith('VERSION'))
+
     def test_adapter_refuses_raw_validator_pin_mismatch_before_compiler(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -47,7 +70,8 @@ class BuildBoundaryTests(unittest.TestCase):
             subprocess.run([sys.executable, str(Path(build.__file__)), '--source-directory', str(root),
                             '--render-script', str(script), '--output', str(output),
                             '--backend-url', 'http://127.0.0.1:8082', '--public-origin', 'http://localhost:8080',
-                            '--allow-loopback-http'], check=True, timeout=15)
+                            '--allow-loopback-http'], check=True, timeout=15,
+                           **({'creationflags': subprocess.CREATE_NO_WINDOW} if os.name == 'nt' else {}))
             self.assertTrue(script.read_bytes().startswith(b'\xef\xbb\xbf'))
             text = script.read_text(encoding='utf-8-sig')
             self.assertIn('  !define chromium_ver "142"', text)

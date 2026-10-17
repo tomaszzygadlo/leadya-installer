@@ -61,6 +61,39 @@ try {
             if (Test-Path -LiteralPath $parent.FullName) { Assert-Custody $parent.FullName $false }
         }
     }
+    function Resolve-LocalRuntime([string[]]$Candidates) {
+        # Recovery is permanent, including after logout. Never rediscover the retained token.
+        $recovered = @($Candidates | Where-Object {
+            [IO.File]::Exists((Join-Path $_ 'leadya-profile-recovered.txt')) -or
+            [IO.File]::Exists((Join-Path $_ 'leadya-profile-recovery-pending.txt'))
+        })
+        if ($recovered.Count -gt 1) { throw 'LOCAL_RECOVERY_BINDING_CONFLICT' }
+        if ($recovered.Count -eq 1) {
+            $selected = $recovered[0]
+            Assert-RuntimeAncestors $selected
+            Assert-Custody $selected $true
+            Assert-LocalMarker $selected
+            foreach ($name in @('leadya-profile-recovered.txt', 'leadya-profile-recovery-pending.txt')) {
+                $receipt = Join-Path $selected $name
+                if (-not [IO.File]::Exists($receipt)) { continue }
+                Assert-Custody $receipt $true
+                if ((Get-Item -LiteralPath $receipt).Length -gt 4096) { throw 'LOCAL_RECOVERY_BINDING_INVALID' }
+                $lines = [IO.File]::ReadAllLines($receipt)
+                if ($lines.Count -ne 3 -or $lines[0] -cne 'LOCAL_RECOVERY_V1' -or
+                    $lines[1] -notin $Candidates -or $lines[1] -ieq $selected -or $lines[2] -notmatch '^[a-f0-9]{64}$') { throw 'LOCAL_RECOVERY_BINDING_INVALID' }
+            }
+            return $selected
+        }
+        $populated = @($Candidates | Where-Object { [IO.File]::Exists((Join-Path $_ 'bot_files\bot.properties')) })
+        foreach ($candidate in @($populated) + @($Candidates | Where-Object { $_ -notin $populated })) {
+            try {
+                Assert-RuntimeAncestors $candidate
+                if ([IO.Directory]::Exists($candidate)) { Assert-Custody $candidate $true }
+                return $candidate
+            } catch { continue }
+        }
+        throw 'LOCAL_NO_PRIVATE_PROFILE'
+    }
     function Assert-PackagePath([string]$Path, [bool]$Ancestor = $false) {
         $item = Get-Item -LiteralPath $Path -Force
         if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'LOCAL_REPARSE' }
@@ -151,7 +184,7 @@ try {
                 [IO.Directory]::CreateDirectory($directory, $acl) | Out-Null
                 Assert-PackagePath $directory
             }
-            foreach ($relative in @('LaunchLocalLeadYa.ps1', 'ValidateLocalInstall.ps1', 'LeadyaCheckingProgram.bat', 'Uninstall.exe', 'leadya-code-home.txt', 'leadya-local-origin.txt')) {
+            foreach ($relative in @('LaunchLocalLeadYa.ps1', 'ValidateLocalInstall.ps1', 'LocalProfileRecovery.ps1', 'LaunchLocalLeadYa.vbs', 'leadya-nova-icon.ico', 'LeadyaCheckingProgram.bat', 'Uninstall.exe', 'leadya-code-home.txt', 'leadya-local-origin.txt')) {
                 $file = Join-Path $package $relative
                 if (Test-Path -LiteralPath $file) { Assert-PackagePath $file }
                 else { $stream = New-PackageFileStream $file; $stream.Dispose(); Assert-PackagePath $file }
@@ -285,7 +318,7 @@ try {
             }
             [IO.Directory]::CreateDirectory($root) | Out-Null
         }
-        foreach ($relative in @($ProgramJar, 'LeadyaCheckingProgram.bat', 'LaunchLocalLeadYa.ps1', 'ValidateLocalInstall.ps1', 'leadya-code-home.txt', 'leadya-local-origin.txt', 'checking_program_version.txt')) {
+        foreach ($relative in @($ProgramJar, 'LeadyaCheckingProgram.bat', 'LaunchLocalLeadYa.ps1', 'ValidateLocalInstall.ps1', 'LocalProfileRecovery.ps1', 'LaunchLocalLeadYa.vbs', 'leadya-nova-icon.ico', 'leadya-code-home.txt', 'leadya-local-origin.txt', 'checking_program_version.txt')) {
             $source = Join-Path $package $relative
             if ([IO.File]::Exists($source)) { Publish-AtomicFile $source (Join-Path $root $relative) }
         }
@@ -294,30 +327,51 @@ try {
     }
     if ($Mode -in @('Links', 'Unlink')) {
         if (-not $elevated) { throw 'LOCAL_ADMIN_REQUIRED' }
-        $programs = [Environment]::GetFolderPath('CommonPrograms')
-        Assert-ProtectedAncestors $programs
-        $menu = Join-Path $programs 'LeadYa'
-        if ($Mode -eq 'Links') { New-ProtectedDirectory $menu }
-        $destinations = @((Join-Path $menu 'Leadya.lnk'), (Join-Path $menu 'UninstallLeadya.lnk'))
-        $desktop = [Environment]::GetFolderPath('CommonDesktopDirectory')
-        try { Assert-ProtectedAncestors $desktop; $destinations += Join-Path $desktop 'Leadya.lnk' } catch { }
-        $shell = New-Object -ComObject WScript.Shell
-        foreach ($destination in $destinations) {
-            $parent = [IO.Path]::GetDirectoryName($destination)
-            if (-not [IO.Directory]::Exists($parent)) { continue }
-            Assert-ProtectedAncestors $parent
-            $target = Join-Path $package $(if ([IO.Path]::GetFileName($destination) -eq 'UninstallLeadya.lnk') { 'Uninstall.exe' } else { 'LeadyaCheckingProgram.bat' })
-            if ($Mode -eq 'Unlink') {
-                if ([IO.File]::Exists($destination) -and $shell.CreateShortcut($destination).TargetPath -ieq $target) { [IO.File]::Delete($destination) }
-                continue
+        try {
+            $programs = [Environment]::GetFolderPath('CommonPrograms')
+            Assert-ProtectedAncestors $programs
+            $menu = Join-Path $programs 'LeadYa'
+            if ($Mode -eq 'Links') { New-ProtectedDirectory $menu }
+            $destinations = @((Join-Path $menu 'Leadya.lnk'), (Join-Path $menu 'UninstallLeadya.lnk'))
+            $desktop = [Environment]::GetFolderPath('CommonDesktopDirectory')
+            try { Assert-ProtectedAncestors $desktop; $destinations += Join-Path $desktop 'Leadya.lnk' } catch { }
+            $shell = New-Object -ComObject WScript.Shell
+            foreach ($destination in $destinations) {
+                $parent = [IO.Path]::GetDirectoryName($destination)
+                if (-not [IO.Directory]::Exists($parent)) { continue }
+                Assert-ProtectedAncestors $parent
+                $target = Join-Path $package $(if ([IO.Path]::GetFileName($destination) -eq 'UninstallLeadya.lnk') { 'Uninstall.exe' } else { 'LeadyaCheckingProgram.bat' })
+                if ($Mode -eq 'Unlink') {
+                    if ([IO.File]::Exists($destination)) {
+                        $existing = $shell.CreateShortcut($destination)
+                        $wrapperArguments = '//B //Nologo "' + (Join-Path $package 'LaunchLocalLeadYa.vbs') + '"'
+                        if ($existing.TargetPath -ieq $target -or
+                            ($existing.TargetPath -ieq (Join-Path $env:SystemRoot 'System32\wscript.exe') -and $existing.Arguments -ceq $wrapperArguments)) {
+                            [IO.File]::Delete($destination)
+                        }
+                    }
+                    continue
+                }
+                $temporary = Join-Path $package ('.leadya-link-' + [Guid]::NewGuid().ToString('N') + '.lnk')
+                try {
+                    $stream = New-PackageFileStream $temporary; $stream.Dispose()
+                    $link = $shell.CreateShortcut($temporary)
+                    $link.TargetPath = $target; $link.WorkingDirectory = $package; $link.WindowStyle = 1
+                    if ([IO.Path]::GetFileName($destination) -ne 'UninstallLeadya.lnk') {
+                        $link.TargetPath = Join-Path $env:SystemRoot 'System32\wscript.exe'
+                        $link.Arguments = '//B //Nologo "' + (Join-Path $package 'LaunchLocalLeadYa.vbs') + '"'
+                        $link.IconLocation = (Join-Path $package 'leadya-nova-icon.ico') + ',0'
+                    }
+                    $link.Save()
+                    Publish-AtomicFile $temporary $destination
+                } finally { if ([IO.File]::Exists($temporary)) { [IO.File]::Delete($temporary) } }
             }
-            $temporary = Join-Path $package ('.leadya-link-' + [Guid]::NewGuid().ToString('N') + '.lnk')
-            try {
-                $stream = New-PackageFileStream $temporary; $stream.Dispose()
-                $link = $shell.CreateShortcut($temporary)
-                $link.TargetPath = $target; $link.WorkingDirectory = $package; $link.WindowStyle = 7; $link.Save()
-                Publish-AtomicFile $temporary $destination
-            } finally { if ([IO.File]::Exists($temporary)) { [IO.File]::Delete($temporary) } }
+        } catch {
+            # Shared shortcuts are optional. Never repair a shared ACL or write past a failed check.
+            # The ordinary launcher creates personal shortcuts after its non-elevated token guard.
+            if ($Mode -eq 'Unlink') { throw }
+            Write-Output 'LOCAL_LINKS_DEFERRED'
+            exit 0
         }
         Write-Output 'LOCAL_VALID'
         exit 0
@@ -335,11 +389,8 @@ try {
             $previous = [IO.File]::ReadAllText($binding).TrimEnd("`r", "`n")
             if ($previous -in $candidates) { $candidates = @($previous) + @($candidates | Where-Object { $_ -ine $previous }) }
         }
-        foreach ($candidate in $candidates) {
-            try { Assert-RuntimeAncestors $candidate; Write-Output $candidate; exit 0 }
-            catch { continue }
-        }
-        throw 'LOCAL_NO_PRIVATE_PROFILE'
+        Write-Output (Resolve-LocalRuntime $candidates)
+        exit 0
     }
     if ($Mode -in @('Installed', 'Installable', 'Publish', 'Prepare', 'Seed') -and -not $SeedDirectory) { throw 'LOCAL_PACKAGE_REQUIRED' }
     if ($RuntimeDirectory -notin $candidates) { throw 'LOCAL_RUNTIME_BINDING' }
@@ -428,6 +479,31 @@ try {
         }
         [IO.Directory]::CreateDirectory((Join-Path $runtime 'bot_files')) | Out-Null
         if ($Mode -eq 'Seed') { Write-Output 'LOCAL_VALID'; exit 0 }
+        $pendingRecovery = [IO.File]::Exists((Join-Path $runtime 'leadya-profile-recovery-pending.txt'))
+        if ($pendingRecovery -or (-not [IO.File]::Exists((Join-Path $runtime 'bot_files\bot.properties')) -and
+            -not [IO.File]::Exists((Join-Path $runtime 'leadya-profile-recovered.txt')))) {
+            foreach ($previous in $candidates | Where-Object { $_ -ine $runtime }) {
+                if (-not [IO.File]::Exists((Join-Path $previous 'bot_files\bot.properties'))) {
+                    if ($pendingRecovery) { throw 'LOCAL_RECOVERY_SOURCE_UNAVAILABLE' }
+                    if ([IO.File]::Exists((Join-Path $previous 'bot.properties.backup'))) { throw 'LOCAL_RETAINED_BACKUP_REQUIRES_RECOVERY' }
+                    continue
+                }
+                $helper = Join-Path $package 'LocalProfileRecovery.ps1'
+                Assert-PackagePath $helper
+                . $helper
+                $retained = [LeadYa.RetainedProfile]::Open($previous, $PublicOrigin)
+                $staged = Join-Path $runtime ('.leadya-retained-' + [Guid]::NewGuid().ToString('N') + '.tmp')
+                try {
+                    $stream = [IO.File]::Open($staged, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
+                    try { $stream.Write($retained.Configuration, 0, $retained.Configuration.Length); $stream.Flush($true) }
+                    finally { $stream.Dispose() }
+                    Invoke-JavaProbe ('-cp "' + $seed + '" pl.softwizard.sellbot.checking.program.LocalInstallVerifier "' + $runtime + '" "' + $PublicOrigin + '" --recover-config "' + $previous + '" "' + $staged + '"') 45000
+                } finally {
+                    if ([IO.File]::Exists($staged)) { [IO.File]::Delete($staged) }
+                    $retained.Dispose()
+                }
+            }
+        }
         $Mode = 'Installed'
     }
 

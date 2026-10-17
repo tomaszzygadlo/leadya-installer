@@ -33,3 +33,11 @@ LangString INFO_manualRemovalInstructions ${LANG_ITALIAN} "Elimina manualmente l
 LangString QUESTION_jreRemovalComplete ${LANG_ITALIAN} "Hai finito di eliminare manualmente la cartella JRE?$\r$\n$\r$\nFai clic su OK per riprovare o ANNULLA per interrompere."
 LangString ERROR_couldNotRemoveJre ${LANG_ITALIAN} "Impossibile rimuovere la cartella JRE. Riavvia il computer e riprova l'installazione, oppure elimina manualmente:$\r$\n$\r$\n$INSTDIR\jdk-17.0.9+9-jre"
 LangString RestoreDefaultLocation ${LANG_ITALIAN} "Ripristina posizione predefinita"
+
+LangString LOG_checkingProgramVersion ${LANG_ITALIAN} "Verifica della versione..."
+LangString LOG_downloadingCheckingProgram ${LANG_ITALIAN} "Download di CheckingProgram..."
+LangString LOG_downloadedCheckingProgram ${LANG_ITALIAN} "CheckingProgram scaricato."
+LangString LOG_verifyingInstallation ${LANG_ITALIAN} "Verifica installazione..."
+LangString LOG_finishingInstallation ${LANG_ITALIAN} "Completamento installazione..."
+LangString LOG_sharedShortcutDeferred ${LANG_ITALIAN} "Collegamento condiviso non disponibile. Avvia LeadYa con:"
+LangString LOG_downloadingJre ${LANG_ITALIAN} "Download di Java..."

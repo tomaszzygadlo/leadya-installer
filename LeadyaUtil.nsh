@@ -202,6 +202,7 @@ Var JreArchivePath
   !endif
 
   DetailPrint $(LOG_installingJre)
+  DetailPrint "$(LOG_downloadingJre)"
   ${LogLine} "(InstallJRE) Downloading fresh JRE package..."
   ;REPLACE WITH JRE FROM OUR SERVER!
   inetc::get ${url}/Java.zip "$JreArchivePath"

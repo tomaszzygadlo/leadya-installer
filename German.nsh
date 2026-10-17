@@ -33,3 +33,11 @@ LangString INFO_manualRemovalInstructions ${LANG_GERMAN} "Bitte löschen Sie den
 LangString QUESTION_jreRemovalComplete ${LANG_GERMAN} "Haben Sie das Löschen des JRE-Ordners abgeschlossen?$\r$\n$\r$\nKlicken Sie auf OK, um erneut zu versuchen, oder auf ABBRECHEN, um die Installation zu beenden."
 LangString ERROR_couldNotRemoveJre ${LANG_GERMAN} "Kann den JRE-Ordner nicht entfernen. Starten Sie bitte Ihren Computer neu und versuchen Sie die Installation erneut, oder löschen Sie manuell:$\r$\n$\r$\n$INSTDIR\jdk-17.0.9+9-jre"
 LangString RestoreDefaultLocation ${LANG_GERMAN} "Standardspeicherort wiederherstellen"
+
+LangString LOG_checkingProgramVersion ${LANG_GERMAN} "Programmversion wird geprüft..."
+LangString LOG_downloadingCheckingProgram ${LANG_GERMAN} "CheckingProgram wird heruntergeladen..."
+LangString LOG_downloadedCheckingProgram ${LANG_GERMAN} "CheckingProgram heruntergeladen."
+LangString LOG_verifyingInstallation ${LANG_GERMAN} "Installation wird geprüft..."
+LangString LOG_finishingInstallation ${LANG_GERMAN} "Installation wird abgeschlossen..."
+LangString LOG_sharedShortcutDeferred ${LANG_GERMAN} "Gemeinsame Verknüpfung nicht verfügbar. LeadYa starten mit:"
+LangString LOG_downloadingJre ${LANG_GERMAN} "Java-Laufzeit wird heruntergeladen..."

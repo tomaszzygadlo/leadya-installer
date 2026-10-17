@@ -41,10 +41,19 @@
         <build><plugins><plugin><groupId>org.codehaus.mojo</groupId><artifactId>exec-maven-plugin</artifactId>
             <executions>
                 <execution><id>windows-release-policy-tests</id><phase>test</phase><goals><goal>exec</goal></goals><configuration>
-                    <executable>powershell.exe</executable><arguments><argument>-NoProfile</argument><argument>-ExecutionPolicy</argument><argument>Bypass</argument><argument>-File</argument><argument>${project.basedir}/Test-InstallerReleaseSecurity.ps1</argument></arguments>
+                    <executable>powershell.exe</executable><arguments><argument>-NoProfile</argument><argument>-NonInteractive</argument><argument>-WindowStyle</argument><argument>Hidden</argument><argument>-ExecutionPolicy</argument><argument>Bypass</argument><argument>-File</argument><argument>${project.basedir}/Test-InstallerReleaseSecurity.ps1</argument></arguments>
                 </configuration></execution>
                 <execution><id>windows-native-process-tests</id><phase>test</phase><goals><goal>exec</goal></goals><configuration>
-                    <executable>powershell.exe</executable><arguments><argument>-NoProfile</argument><argument>-ExecutionPolicy</argument><argument>Bypass</argument><argument>-File</argument><argument>${project.basedir}/Test-NativeProcessExitCode.ps1</argument></arguments>
+                    <executable>powershell.exe</executable><arguments><argument>-NoProfile</argument><argument>-NonInteractive</argument><argument>-WindowStyle</argument><argument>Hidden</argument><argument>-ExecutionPolicy</argument><argument>Bypass</argument><argument>-File</argument><argument>${project.basedir}/Test-NativeProcessExitCode.ps1</argument></arguments>
+                </configuration></execution>
+                <execution><id>windows-profile-recovery-tests</id><phase>test</phase><goals><goal>exec</goal></goals><configuration>
+                    <executable>powershell.exe</executable><arguments><argument>-NoProfile</argument><argument>-NonInteractive</argument><argument>-WindowStyle</argument><argument>Hidden</argument><argument>-ExecutionPolicy</argument><argument>Bypass</argument><argument>-File</argument><argument>${project.basedir}/Test-LocalProfileRecovery.ps1</argument></arguments>
+                </configuration></execution>
+                <execution><id>windows-launcher-transport-tests</id><phase>test</phase><goals><goal>exec</goal></goals><configuration>
+                    <executable>powershell.exe</executable><arguments><argument>-NoProfile</argument><argument>-NonInteractive</argument><argument>-WindowStyle</argument><argument>Hidden</argument><argument>-ExecutionPolicy</argument><argument>Bypass</argument><argument>-File</argument><argument>${project.basedir}/Test-LocalLauncherTransport.ps1</argument></arguments>
+                </configuration></execution>
+                <execution><id>windows-runtime-selection-tests</id><phase>test</phase><goals><goal>exec</goal></goals><configuration>
+                    <executable>powershell.exe</executable><arguments><argument>-NoProfile</argument><argument>-NonInteractive</argument><argument>-WindowStyle</argument><argument>Hidden</argument><argument>-ExecutionPolicy</argument><argument>Bypass</argument><argument>-File</argument><argument>${project.basedir}/Test-LocalRuntimeSelection.ps1</argument></arguments>
                 </configuration></execution>
             </executions>
         </plugin></plugins></build>

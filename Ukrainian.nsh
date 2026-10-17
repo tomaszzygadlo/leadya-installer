@@ -33,3 +33,11 @@ LangString INFO_manualRemovalInstructions ${LANG_UKRAINIAN} "Будь ласка
 LangString QUESTION_jreRemovalComplete ${LANG_UKRAINIAN} "Ви закінчили ручне видалення папки JRE?$\r$\n$\r$\nНатисніть ОК, щоб повторити спробу, або СКАСУВАТИ, щоб перервати."
 LangString ERROR_couldNotRemoveJre ${LANG_UKRAINIAN} "Не вдається видалити папку JRE. Будь ласка, перезавантажте комп'ютер і повторіть спробу встановлення, або вручну видаліть:$\r$\n$\r$\n$INSTDIR\jdk-17.0.9+9-jre"
 LangString RestoreDefaultLocation ${LANG_UKRAINIAN} "Відновити типове розташування"
+
+LangString LOG_checkingProgramVersion ${LANG_UKRAINIAN} "Перевірка версії програми..."
+LangString LOG_downloadingCheckingProgram ${LANG_UKRAINIAN} "Завантаження CheckingProgram..."
+LangString LOG_downloadedCheckingProgram ${LANG_UKRAINIAN} "CheckingProgram завантажено."
+LangString LOG_verifyingInstallation ${LANG_UKRAINIAN} "Перевірка встановлення..."
+LangString LOG_finishingInstallation ${LANG_UKRAINIAN} "Завершення встановлення..."
+LangString LOG_sharedShortcutDeferred ${LANG_UKRAINIAN} "Спільний ярлик недоступний. Запустіть LeadYa через:"
+LangString LOG_downloadingJre ${LANG_UKRAINIAN} "Завантаження середовища Java..."
