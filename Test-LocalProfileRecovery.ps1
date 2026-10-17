@@ -1,4 +1,5 @@
 $ErrorActionPreference = 'Stop'
+$env:PSModulePath = Join-Path $PSHOME 'Modules'
 $source = if (Test-Path -LiteralPath (Join-Path $PSScriptRoot '..\LocalProfileRecovery.ps1')) { Join-Path $PSScriptRoot '..' } else { $PSScriptRoot }
 . (Join-Path $source 'LocalProfileRecovery.ps1')
 $fixture = Join-Path ([IO.Path]::GetTempPath()) ('leadya-retained-test-' + [Guid]::NewGuid().ToString('N'))

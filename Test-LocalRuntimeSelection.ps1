@@ -1,4 +1,5 @@
 $ErrorActionPreference = 'Stop'
+$env:PSModulePath = Join-Path $PSHOME 'Modules'
 $source = if (Test-Path -LiteralPath (Join-Path $PSScriptRoot '..\ValidateLocalInstall.ps1')) { Join-Path $PSScriptRoot '..' } else { $PSScriptRoot }
 $parseErrors = $null
 $tree = [Management.Automation.Language.Parser]::ParseFile((Join-Path $source 'ValidateLocalInstall.ps1'), [ref]$null, [ref]$parseErrors)

@@ -1,4 +1,5 @@
 $ErrorActionPreference = 'Stop'
+$env:PSModulePath = Join-Path $PSHOME 'Modules'
 $source = if (Test-Path -LiteralPath (Join-Path $PSScriptRoot '..\LaunchLocalLeadYa.vbs')) { Join-Path $PSScriptRoot '..' } else { $PSScriptRoot }
 $fixture = Join-Path ([IO.Path]::GetTempPath()) ('leadya-launch-transport-' + [Guid]::NewGuid().ToString('N') + ' ! & ż')
 try {

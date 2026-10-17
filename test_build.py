@@ -165,6 +165,23 @@ class BuildBoundaryTests(unittest.TestCase):
                     (root / 'installer-inputs.json').write_text(json.dumps(entries))
                     with self.assertRaises(ValueError): build.stage_inputs(root, root / 'out')
 
+    def test_pinned_binary_snapshot_rejects_line_ending_changes(self):
+        for suffix in ('.ico', '.bmp', '.dll'):
+            with self.subTest(suffix=suffix), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                source = root / ('binary' + suffix)
+                source.write_bytes(b'\xef\xbb\xbfBINARY\r\nPAYLOAD')
+                lock = {'schema':'leadya-installer-source/v1',
+                        'repository':'https://github.com/tomaszzygadlo/leadya-installer',
+                        'commit':'a'*40, 'normalization':'strip-utf8-bom+lf',
+                        'files':{source.name:build.source_sha256(source)}}
+                path = root / 'lock.json'
+                path.write_text(json.dumps(lock), encoding='utf-8')
+                self.assertEqual('a'*40, build.verify_snapshot(root, path))
+                source.write_bytes(b'\xef\xbb\xbfBINARY\nPAYLOAD')
+                with self.assertRaises(ValueError):
+                    build.verify_snapshot(root, path)
+
     def test_pinned_snapshot_rejects_changed_missing_and_traversal_sources(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

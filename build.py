@@ -22,6 +22,8 @@ def sha256(path):
 
 
 def source_sha256(path):
+    if Path(path).suffix.lower() in ('.ico', '.bmp', '.dll'):
+        return sha256(path)
     data = Path(path).read_bytes()
     if data.startswith(b'\xef\xbb\xbf'):
         data = data[3:]
