@@ -56,6 +56,37 @@ jobs:
           Copy-Item "$env:RUNNER_TEMP\leadya-nsis\ci-sdk.json" target/ci-sdk.json
           'Unsigned assessment build. SignPath enrollment and release signing are not configured.' >> $env:GITHUB_STEP_SUMMARY
           '[Code signing policy](https://github.com/tomaszzygadlo/leadya-installer/blob/main/CODE_SIGNING_POLICY.md)' >> $env:GITHUB_STEP_SUMMARY
+      - name: Assess final installer bytes with Microsoft Defender
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $env:PSModulePath = Join-Path $PSHOME 'Modules'
+          . .\InstallerReleaseSecurity.ps1
+          try {
+            $evidence = Get-InstallerReleaseSecurityEvidence -Path target/LeadyaInstaller.exe -AssessmentOnly
+            $build = Get-Content target/LeadyaInstaller.build.json -Raw | ConvertFrom-Json
+            if ($evidence.publication_ready -ne $false -or $evidence.artifact_sha256 -ne $build.artifact_sha256) {
+              throw 'Assessment artifact identity or publication policy mismatch'
+            }
+            $evidence | ConvertTo-Json -Depth 8 | Set-Content target/defender-assessment.json -Encoding utf8
+            'Defender assessment completed for the recorded SHA256; package remains unsigned, publication_ready=false.' >> $env:GITHUB_STEP_SUMMARY
+          } catch {
+            @{ status = 'NOT_PASSED'; reason = $_.Exception.Message; publication_ready = $false } |
+              ConvertTo-Json | Set-Content target/defender-assessment.json -Encoding utf8
+            'Defender assessment NOT_PASSED. No protection settings were changed and no AV clearance is asserted.' >> $env:GITHUB_STEP_SUMMARY
+            throw
+          }
+      - name: Preserve assessment evidence after success or refusal
+        if: ${{ always() && hashFiles('target/defender-assessment.json') != '' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: leadya-installer-assessment-${{ github.sha }}
+          path: |
+            target/defender-assessment.json
+            target/ci-provenance.json
+            target/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 14
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: leadya-installer-unsigned-${{ github.sha }}
