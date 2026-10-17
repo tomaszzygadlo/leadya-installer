@@ -494,13 +494,11 @@ try {
                 $retained = [LeadYa.RetainedProfile]::Open($previous, $PublicOrigin)
                 $staged = Join-Path $runtime ('.leadya-retained-' + [Guid]::NewGuid().ToString('N') + '.tmp')
                 try {
-                    $stream = [IO.File]::Open($staged, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
-                    try { $stream.Write($retained.Configuration, 0, $retained.Configuration.Length); $stream.Flush($true) }
-                    finally { $stream.Dispose() }
+                    [LeadYa.RetainedProfile]::WritePrivateSnapshot($staged, $retained.Configuration)
                     Invoke-JavaProbe ('-cp "' + $seed + '" pl.softwizard.sellbot.checking.program.LocalInstallVerifier "' + $runtime + '" "' + $PublicOrigin + '" --recover-config "' + $previous + '" "' + $staged + '"') 45000
                 } finally {
-                    if ([IO.File]::Exists($staged)) { [IO.File]::Delete($staged) }
-                    $retained.Dispose()
+                    try { if ([IO.File]::Exists($staged)) { [IO.File]::Delete($staged) } }
+                    finally { $retained.Dispose() }
                 }
             }
         }

@@ -29,10 +29,10 @@ namespace LeadYa {
         [DllImport("advapi32.dll")] static extern uint GetSecurityDescriptorLength(IntPtr descriptor);
         [DllImport("kernel32.dll")] static extern IntPtr LocalFree(IntPtr memory);
         static IOException Refused() { return new IOException("LOCAL_RETAINED_PROFILE_REFUSED"); }
-        SafeFileHandle Pin(string path, bool directory, bool privateAcl, bool exclusive) {
+        SafeFileHandle Pin(string path, bool directory, bool privateAcl, bool exclusive, bool createNew = false) {
             // READ_CONTROL + FILE_READ_ATTRIBUTES; files also need GENERIC_READ. No write/delete sharing.
-            var handle = CreateFile(path, directory ? 0x20080u : 0x80020080u, exclusive ? 0u : 1u,
-                IntPtr.Zero, 3, 0x02200000, IntPtr.Zero);
+            var handle = CreateFile(path, createNew ? 0xC0020080u : (directory ? 0x20080u : 0x80020080u), exclusive ? 0u : 1u,
+                IntPtr.Zero, createNew ? 1u : 3u, 0x02200000, IntPtr.Zero);
             if (handle.IsInvalid) { handle.Dispose(); throw Refused(); }
             pins.Add(handle);
             FileInfo info;
@@ -71,6 +71,25 @@ namespace LeadYa {
                 int offset = 0;
                 while (offset < bytes.Length) { int count = stream.Read(bytes, offset, bytes.Length-offset); if (count == 0) throw Refused(); offset += count; }
                 return bytes;
+            }
+        }
+        public static void WritePrivateSnapshot(string path, byte[] bytes) {
+            using (var proof = new RetainedProfile()) {
+                path = Path.GetFullPath(path);
+                string root = Path.GetDirectoryName(path);
+                var chain = new Stack<string>();
+                for (var part = new DirectoryInfo(root); part != null; part = part.Parent) chain.Push(part.FullName);
+                while (chain.Count != 0) {
+                    string part = chain.Pop();
+                    proof.Pin(part, true, String.Equals(part, root, StringComparison.OrdinalIgnoreCase), false);
+                }
+                // CREATE_NEW plus an exclusive handle: inspect the empty file's effective
+                // DACL and identity before any secret, without repairing inherited permissions.
+                var handle = proof.Pin(path, false, true, true, true);
+                using (var stream = new FileStream(handle, FileAccess.Write)) {
+                    stream.Write(bytes, 0, bytes.Length);
+                    stream.Flush(true);
+                }
             }
         }
         public static RetainedProfile Open(string root, string origin) {

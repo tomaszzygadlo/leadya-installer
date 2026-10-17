@@ -44,7 +44,25 @@ try {
     $fileAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new([Security.Principal.SecurityIdentifier]::new('S-1-1-0'), 'Read', 'Allow'))
     Set-Acl -LiteralPath $config -AclObject $fileAcl
     Assert-Refused { [LeadYa.RetainedProfile]::Open($fixture, $origin) }
-    Write-Output 'PASS: native retained-data pinning, no-clobber locks, origin, reset, active engine, hardlink, private ACL'
+    $staged = Join-Path $fixture 'snapshot.tmp'
+    $synthetic = [Text.Encoding]::UTF8.GetBytes('[TEST] synthetic retained profile')
+    $inheritedHome = Join-Path $fixture 'inherited-home'
+    [IO.Directory]::CreateDirectory($inheritedHome) | Out-Null
+    $snapshotAcl = New-Object Security.AccessControl.DirectorySecurity
+    $snapshotAcl.SetOwner([Security.Principal.WindowsIdentity]::GetCurrent().User)
+    $snapshotAcl.SetAccessRuleProtection($true, $false)
+    foreach ($sid in @([Security.Principal.WindowsIdentity]::GetCurrent().User.Value, 'S-1-5-18', 'S-1-5-32-544')) {
+        $snapshotAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new([Security.Principal.SecurityIdentifier]::new($sid), 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow'))
+    }
+    $snapshotAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new([Security.Principal.SecurityIdentifier]::new('S-1-1-0'), 'Read', 'ObjectInherit', 'InheritOnly', 'Allow'))
+    Set-Acl -LiteralPath $inheritedHome -AclObject $snapshotAcl
+    [LeadYa.RetainedProfile]::WritePrivateSnapshot($staged, $synthetic)
+    if ([IO.File]::ReadAllBytes($staged).Length -ne $synthetic.Length) { throw 'Private snapshot was not written' }
+    Assert-Refused { [LeadYa.RetainedProfile]::WritePrivateSnapshot($staged, $synthetic) }
+    $staged = Join-Path $inheritedHome 'snapshot.tmp'
+    Assert-Refused { [LeadYa.RetainedProfile]::WritePrivateSnapshot($staged, $synthetic) }
+    if (-not [IO.File]::Exists($staged) -or (Get-Item -LiteralPath $staged).Length -ne 0) { throw 'Credential bytes reached an inherited foreign ACL' }
+    Write-Output 'PASS: native retained-data pinning, no-clobber locks, origin, reset, active engine, hardlink, private ACL, snapshot inheritance refused before bytes'
 } finally {
     # Only this test's randomly named fixture; never follow or remove unknown paths.
     $resolved = [IO.Path]::GetFullPath($fixture)
