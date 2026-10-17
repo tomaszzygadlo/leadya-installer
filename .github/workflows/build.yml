@@ -66,6 +66,8 @@ jobs:
           $env:PSModulePath = Join-Path $PSHOME 'Modules'
           . .\InstallerReleaseSecurity.ps1
           try {
+            # Hosted images can retain stale definitions; update signatures without changing policy.
+            Update-MpSignature -ErrorAction Stop
             $evidence = Get-InstallerReleaseSecurityEvidence -Path target/LeadyaInstaller.exe -AssessmentOnly
             $build = Get-Content target/LeadyaInstaller.build.json -Raw | ConvertFrom-Json
             if ($evidence.publication_ready -ne $false -or $evidence.artifact_sha256 -ne $build.artifact_sha256) {
