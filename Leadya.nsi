@@ -49,7 +49,7 @@ Var LocalDirectorySpaceReady
 !define /math LEADYA_LOCAL_INSTALL_SIZE_MB ${LEADYA_LOCAL_INSTALL_SIZE_KB} / 1024
 
 !define LOCAL_INSTALL_STATE_KEY "Software\Leadya\Server"
-!define LEADYA_VALIDATOR_SHA256 "52B2A0E5E40D98F880EDEBB8CB2ED45165234F18146EC1C7032CF5CC20CF63A1"
+!define LEADYA_VALIDATOR_SHA256 "EB3275873EA2384C6ECEA1C5F5FC5623B9CA11642723B25E467126D665ADE9BE"
 !define LEADYA_TRUSTED_DOWNLOADS
 ; Elevated downloads use an admin-owned package, never a writable code folder or per-user runtime.
 !define LEADYA_INSTALL_DOWNLOAD_DIR "$LocalTrustedHome"
@@ -921,8 +921,10 @@ SectionEnd
 
 Function RunInstalledLocalApplication
   ; The installation is complete. Cancellation/offline authentication never rolls it back.
+  ; The finish action uses the hidden PowerShell entry point directly, independently
+  ; of Windows Script Host's optional VBS engine and its per-user file association.
   SetOutPath "$LocalTrustedHome"
-  ShellExecAsUser::ShellExecAsUser "open" "$SYSDIR\wscript.exe" '$"$LocalTrustedHome\LaunchLocalLeadYa.vbs$"' SW_HIDE
+  ShellExecAsUser::ShellExecAsUser "open" "$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" '-NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "$LocalTrustedHome\LaunchLocalLeadYa.ps1"' SW_HIDE
 FunctionEnd
 
 ;--------------------------------

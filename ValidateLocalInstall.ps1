@@ -10,6 +10,12 @@
 )
 
 # Validate LOCAL custody; Prepare initializes only a new per-user runtime. Never repair ancestors.
+function Get-LocalJvmFailureCode([string]$Diagnostic) {
+    # Keep in sync with the standalone launcher; neither caller logs the captured text.
+    if ($Diagnostic -match '(?i)insufficient memory for the Java Runtime Environment|Could not reserve enough space|Native memory allocation .* failed|OutOfMemoryError|paging file is too small|os::commit_memory.*(1455|error=8)') { return 'LOCAL_JAVA_MEMORY' }
+    return 'LOCAL_JAVA_FAILED'
+}
+
 $ErrorActionPreference = 'Stop'
 $env:PSModulePath = Join-Path $PSHOME 'Modules'
 try {
@@ -259,7 +265,7 @@ try {
         $system = Join-Path $windows 'System32'
         $info = New-Object Diagnostics.ProcessStartInfo
         $info.FileName = $Executable
-        $info.Arguments = '-XX:-UsePerfData ' + $Arguments
+        $info.Arguments = '-Xms16m -Xmx128m -XX:-UsePerfData ' + $Arguments
         $info.UseShellExecute = $false
         $info.CreateNoWindow = $true
         $info.RedirectStandardOutput = $true
@@ -296,8 +302,17 @@ try {
         $probe.StartInfo = New-LocalJavaStartInfo $JavaExecutable $Arguments $package
         try {
             if (-not $probe.Start()) { throw 'LOCAL_JAVA_FAILED' }
+            # Drain both pipes concurrently: a verbose JVM failure must not become a false timeout.
+            $output = $probe.StandardOutput.ReadToEndAsync()
+            $errorOutput = $probe.StandardError.ReadToEndAsync()
             if (-not $probe.WaitForExit($Timeout)) { $probe.Kill(); $probe.WaitForExit(); throw 'LOCAL_JAVA_TIMEOUT' }
-            if ($probe.ExitCode -ne 0) { throw 'LOCAL_JAVA_FAILED' }
+            $diagnostic = $output.GetAwaiter().GetResult() + "`n" + $errorOutput.GetAwaiter().GetResult()
+            if ($probe.ExitCode -ne 0) {
+                throw (Get-LocalJvmFailureCode $diagnostic)
+            }
+        } catch [ComponentModel.Win32Exception] {
+            if ($_.Exception.NativeErrorCode -in @(8, 14, 1455)) { throw 'LOCAL_JAVA_MEMORY' }
+            throw 'LOCAL_JAVA_FAILED'
         } finally { $probe.Dispose() }
     }
     if ($Mode -in @('Jre', 'JrePrepare', 'JreCreate', 'JreProbe')) {
