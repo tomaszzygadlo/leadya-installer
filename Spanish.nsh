@@ -1,5 +1,5 @@
 ﻿LicenseLangString LicenseFile ${LANG_SPANISH} "Docs\license_es.txt"
-LangString BrandingText ${LANG_SPANISH} "Turbot sp z o.o. & Tomasz Żygadło 2022-2026 - Instalador de LeadYa"
+LangString BrandingText ${LANG_SPANISH} "Turbot sp z o.o. 2022-2026 - Instalador de LeadYa"
 LangString DESC_SecServer ${LANG_SPANISH} "Servidor de Leadya."
 LangString DESC_SecProxy ${LANG_SPANISH} "Proxy de Leadya."
 LangString LOGIN_Email ${LANG_SPANISH} "Ingrese su dirección de correo electrónico"

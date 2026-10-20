@@ -95,3 +95,20 @@ Use the release helper on an independent clean Windows signing/scan host for rea
 Preserve application data outside the code directory, and never broaden ancestor ACLs to
 make a destination pass validation. Product installers must be tested with default and
 custom paths and an ordinary Windows user before publication.
+
+## Local uninstall choices
+
+The uninstaller removes its validated program/package, including retained JARs and
+installer logs. Two independent default-on choices can retain the user's marked
+profile or recognized LeadYa EXE/VPS ZIP downloads. Java removal stays separately
+opt-in. Other downloads and unrelated program-directory files are retained. Close
+LeadYa and its browsers before deleting the profile. A locked file, foreign marker
+or junction refuses cleanup before removing program files; interrupted deletion can
+be retried. Private data is removed only by the desktop user's ordinary token, with
+an exact live owner identity and a 90-second deadline set before dispatch.
+
+`Test-LocalUninstallCleanup.ps1 -NsisCompiler <supported makensis.exe>` tests deletion
+and preservation with disposable native fixtures. The separate
+`Test-LocalUninstallTransport.ps1 -Compiler <supported makensis.exe>` requires normal
+UAC consent and tests the actual admin callback with uniquely owned disposable data.
+It redirects only the Downloads boundary; it never deletes real downloaded installers.

@@ -1,4 +1,4 @@
-﻿Copyright 2022-2026 Turbot sp z o.o. & Tomasz Żygadło
+﻿Copyright 2022-2026 Turbot sp z o.o.
 
 SOFTWARE LICENSE AGREEMENT FOR "Leadya"
 

@@ -22,5 +22,6 @@
   "ThirdPartyNotices.txt": "ThirdPartyNotices.txt",
   "LocalProfileRecovery.ps1": "LocalProfileRecovery.ps1",
   "LaunchLocalLeadYa.vbs": "LaunchLocalLeadYa.vbs",
-  "leadya-nova-icon.ico": "leadya-nova-icon.ico"
+  "leadya-nova-icon.ico": "leadya-nova-icon.ico",
+  "UninstallLocalLeadYa.ps1": "UninstallLocalLeadYa.ps1"
 }

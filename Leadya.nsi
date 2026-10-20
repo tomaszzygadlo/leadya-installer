@@ -1,4 +1,4 @@
-﻿!define url "https://testowy.backend.leadya.app"
+!define url "https://testowy.backend.leadya.app"
 OutFile "../docker/botserver/installers/LeadyaInstaller-TESTOWY_LEADYA_APP.exe"
 !define public_origin "https://testowy.leadya.app"
 
@@ -23,6 +23,15 @@ Var CheckingProgramDownloadFile
 Var ChromiumFrontendUrl
 Var uninstallRemoveJreCheckbox
 Var uninstallRemoveJreState
+Var uninstallRemoveProfileCheckbox
+Var uninstallRemoveProfileState
+Var uninstallRemoveInstallersCheckbox
+Var uninstallRemoveInstallersState
+Var uninstallOwnerPid
+Var uninstallOwnerTime
+Var uninstallOwnerExecutable
+Var uninstallUserCommand
+Var uninstallDeadlineTick
 Var LocalOperatorSid
 Var LocalValidationMode
 Var LocalValidationJar
@@ -49,7 +58,7 @@ Var LocalDirectorySpaceReady
 !define /math LEADYA_LOCAL_INSTALL_SIZE_MB ${LEADYA_LOCAL_INSTALL_SIZE_KB} / 1024
 
 !define LOCAL_INSTALL_STATE_KEY "Software\Leadya\Server"
-!define LEADYA_VALIDATOR_SHA256 "EB3275873EA2384C6ECEA1C5F5FC5623B9CA11642723B25E467126D665ADE9BE"
+!define LEADYA_VALIDATOR_SHA256 "0DC181FE11FA47B82115A0E55F347290F25A754B9202379A89BA20485AD443DB"
 !define LEADYA_TRUSTED_DOWNLOADS
 ; Elevated downloads use an admin-owned package, never a writable code folder or per-user runtime.
 !define LEADYA_INSTALL_DOWNLOAD_DIR "$LocalTrustedHome"
@@ -176,6 +185,11 @@ ShowInstDetails show
 !macroend
 
 !macro InvokePinnedLocalValidator suffix
+  Push $1
+  Push $2
+  Push $3
+  Push $4
+  Push $5
   !insertmacro ValidatorEnvironment LY0 "$PLUGINSDIR\ValidateLocalInstall.ps1" ${suffix}ValidatorFailed
   !insertmacro ValidatorEnvironment LY1 "$INSTDIR" ${suffix}ValidatorFailed
   !insertmacro ValidatorEnvironment LY2 "$LocalValidationMode" ${suffix}ValidatorFailed
@@ -185,14 +199,43 @@ ShowInstDetails show
   !insertmacro ValidatorEnvironment LY6 "$LocalRuntimeHome" ${suffix}ValidatorFailed
   !insertmacro ValidatorEnvironment LY7 "$LocalValidationSeed" ${suffix}ValidatorFailed
   !insertmacro ValidatorEnvironment LY8 "$CheckingProgramDownloadFile" ${suffix}ValidatorFailed
-  nsExec::ExecToStack /TIMEOUT=60000 `"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -Command "$$ErrorActionPreference='Stop';$$e=12;try{$$f=[IO.File]::Open($$env:LY0,3,1,1);$$h=[Security.Cryptography.SHA256]::Create();if(([BitConverter]::ToString($$h.ComputeHash($$f))-replace'-')-ne'${LEADYA_VALIDATOR_SHA256}'){throw 'HASH'};$$f.Position=0;$$r=[IO.StreamReader]::new($$f,[Text.Encoding]::UTF8,$$true,4096,$$true);$$b=[ScriptBlock]::Create($$r.ReadToEnd());& $$b $$env:LY1 $$env:LY2 $$env:LY3 $$env:LY4 $$env:LY5 $$env:LY6 $$env:LY7 $$env:LY8;$$e=$$LASTEXITCODE}catch{Write-Output 'LOCAL_VALIDATOR_REFUSED'}finally{if($$r){$$r.Dispose()};if($$f){$$f.Dispose()};if($$h){$$h.Dispose()}};exit $$e"`
+  ; ASCII envelope avoids nsExec's ANSI conversion of Unicode installation paths.
+  ; The end marker refuses a truncated stack value instead of accepting a shorter path.
+  nsExec::ExecToStack /TIMEOUT=60000 `"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -Command "$$ErrorActionPreference='Stop';$$e=12;try{$$f=[IO.File]::Open($$env:LY0,3,1,1);$$h=[Security.Cryptography.SHA256]::Create();if(([BitConverter]::ToString($$h.ComputeHash($$f))-replace'-')-ne'${LEADYA_VALIDATOR_SHA256}'){throw 'HASH'};$$f.Position=0;$$r=[IO.StreamReader]::new($$f,[Text.Encoding]::UTF8,$$true,4096,$$true);$$b=[ScriptBlock]::Create($$r.ReadToEnd());& $$b $$env:LY1 $$env:LY2 $$env:LY3 $$env:LY4 $$env:LY5 $$env:LY6 $$env:LY7 $$env:LY8 $$true;$$e=$$LASTEXITCODE}catch{[Console]::Out.Write('LYV1:'+[Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes('LOCAL_VALIDATOR_REFUSED'))+':END')}finally{if($$r){$$r.Dispose()};if($$f){$$f.Dispose()};if($$h){$$h.Dispose()}};exit $$e"`
   Pop $LocalValidationResult
   Pop $LocalValidationOutput
+  StrCpy $0 $LocalValidationOutput 5
+  StrCmp $0 "LYV1:" 0 ${suffix}ValidatorFailed
+  StrCpy $0 $LocalValidationOutput 4 -4
+  StrCmp $0 ":END" 0 ${suffix}ValidatorFailed
+  StrCpy $0 $LocalValidationOutput -4 5
+  StrCpy $1 0
+  System::Call 'crypt32::CryptStringToBinaryW(w r0, i 0, i 1, p 0, *i .r1, p 0, p 0) i .r2'
+  StrCmp $2 0 ${suffix}ValidatorFailed
+  IntCmp $1 ${NSIS_MAX_STRLEN} 0 0 ${suffix}ValidatorFailed
+  IntOp $2 $1 + 2
+  System::Alloc $2
+  Pop $3
+  StrCmp $3 0 ${suffix}ValidatorFailed
+  IntOp $4 $3 + $1
+  System::Call '*$4(&i2 0)'
+  System::Call 'crypt32::CryptStringToBinaryW(w r0, i 0, i 1, p r3, *i r1, p 0, p 0) i .r2'
+  StrCmp $2 0 ${suffix}ValidatorDecodeFailed
+  System::Call 'kernel32::lstrcpynW(w .r0, p r3, i ${NSIS_MAX_STRLEN}) p'
+  StrCpy $LocalValidationOutput $0
+  System::Free $3
   Goto ${suffix}ValidatorDone
+  ${suffix}ValidatorDecodeFailed:
+  System::Free $3
   ${suffix}ValidatorFailed:
   StrCpy $LocalValidationResult "12"
   StrCpy $LocalValidationOutput "LOCAL_VALIDATOR_REFUSED"
   ${suffix}ValidatorDone:
+  Pop $5
+  Pop $4
+  Pop $3
+  Pop $2
+  Pop $1
 !macroend
 
 Function ValidateLocalInstallation
@@ -876,6 +919,7 @@ SectionIn 1
   File /oname=$LocalTrustedHome\LaunchLocalLeadYa.ps1 "LaunchLocalLeadYa.ps1"
   File /oname=$LocalTrustedHome\ValidateLocalInstall.ps1 "ValidateLocalInstall.ps1"
   File /oname=$LocalTrustedHome\LocalProfileRecovery.ps1 "LocalProfileRecovery.ps1"
+  File /oname=$LocalTrustedHome\UninstallLocalLeadYa.ps1 "UninstallLocalLeadYa.ps1"
   File /oname=$LocalTrustedHome\LaunchLocalLeadYa.vbs "LaunchLocalLeadYa.vbs"
   File /oname=$LocalTrustedHome\leadya-nova-icon.ico "leadya-nova-icon.ico"
   File /oname=$LocalTrustedHome\ThirdPartyNotices.txt "ThirdPartyNotices.txt"
@@ -1029,6 +1073,11 @@ Function un.onInit
   ; The registered uninstaller lives in the protected package; the chosen code folder is only a copy.
   InitPluginsDir
   File /oname=$PLUGINSDIR\ValidateLocalInstall.ps1 "ValidateLocalInstall.ps1"
+  CreateDirectory "$PLUGINSDIR\user-cleanup"
+  File /oname=$PLUGINSDIR\user-cleanup\UninstallLocalLeadYa.ps1 "UninstallLocalLeadYa.ps1"
+  StrCpy $uninstallRemoveProfileState ${BST_CHECKED}
+  StrCpy $uninstallRemoveInstallersState ${BST_CHECKED}
+  StrCpy $uninstallRemoveJreState ${BST_UNCHECKED}
   StrCpy $LocalTrustedHome $INSTDIR
   StrCpy $LocalCodeCleanup "0"
   StrCpy $LocalValidationJar ""
@@ -1059,25 +1108,152 @@ Function un.onInit
   UninstallBindingReady:
 FunctionEnd
 
+Function un.CleanupLocalUser
+  Delete "$PLUGINSDIR\user-cleanup\leadya-user-cleanup-result.txt"
+  FileOpen $0 "$PLUGINSDIR\user-cleanup\leadya-user-cleanup-result.txt" w
+  IfErrors LocalUninstallUserFailed
+  FileClose $0
+  ; Bind result write access to the desktop shell user used by ShellExecAsUser.
+  ; Other local Users accounts must not be able to forge cleanup success.
+  System::Call 'user32::GetShellWindow() p .r0'
+  StrCmp $0 0 LocalUninstallUserFailed
+  System::Call 'user32::GetWindowThreadProcessId(p r0, *i .r1) i .r2'
+  StrCmp $2 0 LocalUninstallUserFailed
+  System::Call 'kernel32::OpenProcess(i 0x1000, i 0, i r1) p .r2'
+  StrCmp $2 0 LocalUninstallUserFailed
+  System::Call 'advapi32::OpenProcessToken(p r2, i 8, *p .r3) i .r4'
+  System::Call 'kernel32::CloseHandle(p r2)'
+  StrCmp $4 0 LocalUninstallUserFailed
+  System::Call 'advapi32::GetTokenInformation(p r3, i 1, p 0, i 0, *i .r1)'
+  IntCmp $1 65536 0 0 LocalUninstallTokenFailed
+  IntCmp $1 0 LocalUninstallTokenFailed LocalUninstallTokenFailed 0
+  System::Alloc $1
+  Pop $0
+  StrCmp $0 0 LocalUninstallTokenFailed
+  System::Call 'advapi32::GetTokenInformation(p r3, i 1, p r0, i r1, *i .r2) i .r4'
+  System::Call 'kernel32::CloseHandle(p r3)'
+  StrCmp $4 0 LocalUninstallSidFailed
+  System::Call '*$0(p .r1)'
+  System::Call 'advapi32::ConvertSidToStringSidW(p r1, *p .r2) i .r4'
+  System::Free $0
+  StrCmp $4 0 LocalUninstallUserFailed
+  System::Call '*$2(&w${NSIS_MAX_STRLEN} .r4)'
+  System::Call 'kernel32::LocalFree(p r2)'
+  StrCmp $4 "" LocalUninstallUserFailed
+  Goto LocalUninstallSidReady
+  LocalUninstallTokenFailed:
+  System::Call 'kernel32::CloseHandle(p r3)'
+  Goto LocalUninstallUserFailed
+  LocalUninstallSidFailed:
+  System::Free $0
+  Goto LocalUninstallUserFailed
+  LocalUninstallSidReady:
+  ; Elevated NSIS uses a private temp directory. Grant ordinary users read access
+  ; to this public helper and only the shell user write access to the fixed result.
+  ; Never grant write/delete access to the directory or executable helper.
+  System::Call 'advapi32::ConvertStringSecurityDescriptorToSecurityDescriptorW(w "D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;$4)", i 1, *p .r0, p 0) i .r1'
+  StrCmp $1 0 LocalUninstallUserFailed
+  System::Call 'advapi32::SetFileSecurityW(w "$PLUGINSDIR\user-cleanup\leadya-user-cleanup-result.txt", i 4, p r0) i .r1'
+  System::Call 'kernel32::LocalFree(p r0)'
+  StrCmp $1 0 LocalUninstallUserFailed
+  System::Call 'advapi32::ConvertStringSecurityDescriptorToSecurityDescriptorW(w "D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGX;;;BU)", i 1, *p .r0, p 0) i .r1'
+  StrCmp $1 0 LocalUninstallUserFailed
+  System::Call 'advapi32::SetFileSecurityW(w "$PLUGINSDIR\user-cleanup\UninstallLocalLeadYa.ps1", i 4, p r0) i .r1'
+  System::Call 'advapi32::SetFileSecurityW(w "$PLUGINSDIR\user-cleanup", i 4, p r0) i .r2'
+  System::Call 'kernel32::LocalFree(p r0)'
+  StrCmp $1 0 LocalUninstallUserFailed
+  StrCmp $2 0 LocalUninstallUserFailed
+  ; Keep NSIS plugin staging writable to its ordinary owner. The helper's
+  ; subdirectory stays read-only; an elevated stage grants no user write.
+  System::Call 'shell32::IsUserAnAdmin() i .r0'
+  StrCmp $0 0 LocalUninstallOrdinaryStage LocalUninstallAdminStage
+  LocalUninstallOrdinaryStage:
+  System::Call 'advapi32::ConvertStringSecurityDescriptorToSecurityDescriptorW(w "D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGX;;;BU)(A;;GA;;;$4)", i 1, *p .r0, p 0) i .r1'
+  Goto LocalUninstallStageAcl
+  LocalUninstallAdminStage:
+  System::Call 'advapi32::ConvertStringSecurityDescriptorToSecurityDescriptorW(w "D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGX;;;BU)", i 1, *p .r0, p 0) i .r1'
+  LocalUninstallStageAcl:
+  StrCmp $1 0 LocalUninstallUserFailed
+  System::Call 'advapi32::SetFileSecurityW(w "$PLUGINSDIR", i 4, p r0) i .r1'
+  System::Call 'kernel32::LocalFree(p r0)'
+  StrCmp $1 0 LocalUninstallUserFailed
+  System::Call 'kernel32::GetCurrentProcessId() i .r0'
+  StrCpy $uninstallOwnerPid $0
+  System::Call 'kernel32::GetCurrentProcess() p .r0'
+  System::Call 'kernel32::GetProcessTimes(p r0, *l .r1, *l .r2, *l .r3, *l .r4) i .r5'
+  StrCmp $5 0 LocalUninstallUserFailed
+  StrCpy $uninstallOwnerTime $1
+  System::Call 'kernel32::GetModuleFileNameW(p 0, w .r0, i ${NSIS_MAX_STRLEN}) i .r1'
+  StrCpy $uninstallOwnerExecutable $0
+  System::Call 'kernel32::GetTickCount64() l .r0'
+  System::Int64Op $0 + 90000
+  Pop $uninstallDeadlineTick
+  ; Use an existing public working directory while the selected program is removed.
+  SetOutPath "$TEMP"
+  StrCpy $uninstallUserCommand '-NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "$PLUGINSDIR\user-cleanup\UninstallLocalLeadYa.ps1" -InstallDirectory "$INSTDIR" -PublicOrigin "${public_origin}" -RemoveProfile $uninstallRemoveProfileState -RemoveInstallers $uninstallRemoveInstallersState -ResultFile "$PLUGINSDIR\user-cleanup\leadya-user-cleanup-result.txt" -OwnerProcessId $uninstallOwnerPid -OwnerCreationTime $uninstallOwnerTime -OwnerExecutable "$uninstallOwnerExecutable" -DeadlineTick $uninstallDeadlineTick'
+  System::Call 'shell32::IsUserAnAdmin() i .r0'
+  StrCmp $0 0 LocalUninstallOrdinary
+  ShellExecAsUser::ShellExecAsUser "open" "$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" $uninstallUserCommand SW_HIDE
+  Goto LocalUninstallDispatched
+  LocalUninstallOrdinary:
+  ; No de-elevation is necessary. nsExec keeps the already-ordinary child console hidden.
+  nsExec::ExecToStack /TIMEOUT=90000 `"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" $uninstallUserCommand`
+  Pop $0
+  Pop $1
+  LocalUninstallDispatched:
+  StrCpy $0 0
+  LocalUninstallWait:
+  ClearErrors
+  FileOpen $1 "$PLUGINSDIR\user-cleanup\leadya-user-cleanup-result.txt" r
+  IfErrors LocalUninstallWaitAgain
+  FileRead $1 $2
+  FileClose $1
+  StrCpy $3 $2 4 -4
+  StrCmp $3 ":END" LocalUninstallUserResult
+  LocalUninstallWaitAgain:
+  Sleep 500
+  IntOp $0 $0 + 1
+  IntCmp $0 240 LocalUninstallUserFailed LocalUninstallWait LocalUninstallUserFailed
+  LocalUninstallUserResult:
+  StrCmp $2 "LOCAL_UNINSTALL_OK:END" LocalUninstallUserDone
+  DetailPrint "$2"
+  LocalUninstallUserFailed:
+  MessageBox MB_OK|MB_ICONEXCLAMATION "Nie mozna bezpiecznie usunac wybranych danych. Zamknij LeadYa i jej przegladarki, a nastepnie ponow deinstalacje. Pliki programu pozostaly na miejscu." /SD IDOK
+  SetErrorLevel 12
+  Abort
+  LocalUninstallUserDone:
+FunctionEnd
+
 Section "Uninstall" SecUninstallServer
+  ; Private user data is removed only by the ordinary interactive user's token.
+  ; Refuse before touching installed code if a marked profile is still in use.
+  Call un.CleanupLocalUser
   ; Code directories may contain unrelated files and legacy data. Retain those on uninstall.
   StrCmp $LocalCodeCleanup "1" 0 LocalUninstallCodeDone
   StrCmp $LocalValidationJar "" +2
   Delete /REBOOTOK "$INSTDIR\$LocalValidationJar"
   Delete /REBOOTOK "$INSTDIR\Uninstall.exe"
   Delete /REBOOTOK "$INSTDIR\CheckingProgram.jar"
+  Delete /REBOOTOK "$INSTDIR\CheckingProgram-*.jar"
   Delete /REBOOTOK "$INSTDIR\checking_program_version.txt"
   Delete /REBOOTOK "$INSTDIR\leadya-local-install.txt"
   Delete /REBOOTOK "$INSTDIR\LeadyaCheckingProgram.bat"
   Delete /REBOOTOK "$INSTDIR\LaunchLocalLeadYa.ps1"
   Delete /REBOOTOK "$INSTDIR\ValidateLocalInstall.ps1"
   Delete /REBOOTOK "$INSTDIR\LocalProfileRecovery.ps1"
+  Delete /REBOOTOK "$INSTDIR\UninstallLocalLeadYa.ps1"
   Delete /REBOOTOK "$INSTDIR\LaunchLocalLeadYa.vbs"
   Delete /REBOOTOK "$INSTDIR\leadya-nova-icon.ico"
   Delete /REBOOTOK "$INSTDIR\leadya-local-origin.txt"
   Delete /REBOOTOK "$INSTDIR\leadya-runtime-home.txt"
   Delete /REBOOTOK "$INSTDIR\leadya-code-home.txt"
+  Delete /REBOOTOK "$INSTDIR\ThirdPartyNotices.txt"
+  RMDir "$INSTDIR"
   LocalUninstallCodeDone:
+
+  ReadRegStr $0 ${env_hklm} "LEADYA_HOME"
+  StrCmp $0 $INSTDIR 0 +2
+  DeleteRegValue ${env_hklm} "LEADYA_HOME"
 
   IntCmp $uninstallRemoveJreState ${BST_CHECKED} 0 SkipSharedJreRemoval 0
   StrCpy $LocalValidationMode "Jre"
@@ -1100,25 +1276,15 @@ Section "Uninstall" SecUninstallServer
   ReadRegStr $0 HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Leadya" "UninstallString"
   StrCmp $0 '$\"$LocalTrustedHome\Uninstall.exe$\"' 0 +2
   DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Leadya"
-  Delete /REBOOTOK "$LocalTrustedHome\$LocalValidationJar"
-  Delete /REBOOTOK "$LocalTrustedHome\LeadyaCheckingProgram.bat"
-  Delete /REBOOTOK "$LocalTrustedHome\LaunchLocalLeadYa.ps1"
-  Delete /REBOOTOK "$LocalTrustedHome\ValidateLocalInstall.ps1"
-  Delete /REBOOTOK "$LocalTrustedHome\LocalProfileRecovery.ps1"
-  Delete /REBOOTOK "$LocalTrustedHome\LaunchLocalLeadYa.vbs"
-  Delete /REBOOTOK "$LocalTrustedHome\leadya-nova-icon.ico"
-  Delete /REBOOTOK "$LocalTrustedHome\ThirdPartyNotices.txt"
-  Delete /REBOOTOK "$LocalTrustedHome\leadya-code-home.txt"
-  Delete /REBOOTOK "$LocalTrustedHome\leadya-local-origin.txt"
-  Delete /REBOOTOK "$LocalTrustedHome\checking_program_version.txt"
-  Delete /REBOOTOK "$LocalTrustedHome\Uninstall.exe"
-  RMDir "$LocalTrustedHome"
+  ; This exact admin-owned package passed the binding/ancestor checks in un.onInit.
+  ; Include retained versions, installer logs and partial downloads, not just the current JAR.
+  RMDir /r /REBOOTOK "$LocalTrustedHome"
   LocalUninstallPackageDone:
 
 SectionEnd
 
 Function un.SetJreRemovalPage
-  !insertmacro MUI_HEADER_TEXT "Java runtime" "LeadYa can be removed without deleting the shared JDK."
+  !insertmacro MUI_HEADER_TEXT "Odinstaluj LeadYa" "Wybierz dane i pobrane pliki do usuniecia."
   nsDialogs::Create 1018
   Pop $0
 
@@ -1126,19 +1292,30 @@ Function un.SetJreRemovalPage
     Abort
   ${EndIf}
 
-  ${NSD_CreateLabel} 0 0 100% 24u "LeadYa zostanie odinstalowana, ale wspoldzielone JDK domyslnie pozostanie w systemie.$\r$\n$\r$\nZaznacz opcje ponizej tylko wtedy, gdy na pewno chcesz usunac rowniez Java."
+  ${NSD_CreateLabel} 0 0 100% 24u "Pliki programu zostana usuniete. Odznacz wybrana opcje, jesli chcesz zachowac profil lub pobrane instalatory. Przed usunieciem profilu zamknij LeadYa."
   Pop $0
 
-  ${NSD_CreateCheckbox} 0 34u 100% 12u "Usun tez wspoldzielone JDK z $PROGRAMFILES64\Java\jdk-17.0.9+9-jre"
+  ${NSD_CreateCheckbox} 0 34u 100% 12u "Usun moj profil LeadYa: ustawienia, logowanie i dane przegladarek"
+  Pop $uninstallRemoveProfileCheckbox
+  ${NSD_SetState} $uninstallRemoveProfileCheckbox $uninstallRemoveProfileState
+
+  ${NSD_CreateCheckbox} 0 54u 100% 12u "Usun pobrane instalatory LeadYa z folderu Pobrane"
+  Pop $uninstallRemoveInstallersCheckbox
+  ${NSD_SetState} $uninstallRemoveInstallersCheckbox $uninstallRemoveInstallersState
+
+  ${NSD_CreateCheckbox} 0 74u 100% 12u "Usun tez wspoldzielone JDK z $PROGRAMFILES64\Java\jdk-17.0.9+9-jre"
   Pop $uninstallRemoveJreCheckbox
-  ${NSD_Uncheck} $uninstallRemoveJreCheckbox
+  ${NSD_SetState} $uninstallRemoveJreCheckbox $uninstallRemoveJreState
 
-  ${NSD_CreateLabel} 0 52u 100% 22u "Uwaga: usuniecie JDK moze wymagac restartu komputera, jesli pliki Javy sa aktualnie uzywane przez LeadYa lub inne programy."
+  ${NSD_CreateLabel} 0 96u 100% 26u "Java domyslnie pozostaje, poniewaz moze sluzyc innym programom. Usuniecie plikow aktualnie uzywanych moze wymagac restartu komputera."
   Pop $0
 
+  ${NSD_OnBack} un.SetJreRemovalPageLeave
   nsDialogs::Show
 FunctionEnd
 
 Function un.SetJreRemovalPageLeave
   ${NSD_GetState} $uninstallRemoveJreCheckbox $uninstallRemoveJreState
+  ${NSD_GetState} $uninstallRemoveProfileCheckbox $uninstallRemoveProfileState
+  ${NSD_GetState} $uninstallRemoveInstallersCheckbox $uninstallRemoveInstallersState
 FunctionEnd

@@ -1,4 +1,4 @@
-﻿param(
+param(
     [Parameter(Mandatory = $true)][string]$InstallDirectory,
     [ValidateSet('Runtime', 'Destination', 'Prepare', 'Installed', 'Installable', 'Publish', 'Package', 'PackagePrepare', 'PackageTemp', 'PackageSeed', 'Seed', 'Uninstall', 'CodeCleanup', 'Mirror', 'Links', 'Unlink', 'Jre', 'JrePrepare', 'JreCreate', 'JreProbe')][string]$Mode = 'Destination',
     [string]$PublicOrigin,
@@ -6,7 +6,8 @@
     [string]$JavaExecutable,
     [string]$RuntimeDirectory,
     [string]$SeedDirectory,
-    [string]$StagedJar
+    [string]$StagedJar,
+    [bool]$EncodedOutput = $false
 )
 
 # Validate LOCAL custody; Prepare initializes only a new per-user runtime. Never repair ancestors.
@@ -18,6 +19,11 @@ function Get-LocalJvmFailureCode([string]$Diagnostic) {
 
 $ErrorActionPreference = 'Stop'
 $env:PSModulePath = Join-Path $PSHOME 'Modules'
+function Write-LocalValidationResult([string]$Value) {
+    if ($EncodedOutput) {
+        [Console]::Out.Write('LYV1:' + [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($Value)) + ':END')
+    } else { Write-Output $Value }
+}
 try {
     $elevated = ([Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent())).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
     if ($elevated -and $Mode -in @('Prepare', 'Seed')) { throw 'LOCAL_ELEVATED_RUNTIME' }
@@ -139,7 +145,7 @@ try {
         $stream = New-PackageFileStream $temporary
         $stream.Dispose()
         Assert-PackagePath $temporary
-        Write-Output $temporary
+        Write-LocalValidationResult $temporary
         exit 0
     }
     if ($Mode -eq 'Uninstall') {
@@ -163,7 +169,7 @@ try {
         try { $expected = ([BitConverter]::ToString($hasher.ComputeHash([Text.Encoding]::UTF8.GetBytes($codeRoot.ToUpperInvariant() + "`n" + $PublicOrigin)))).Replace('-', '').ToLowerInvariant() }
         finally { $hasher.Dispose() }
         if ($expected -cne [IO.Path]::GetFileName($package)) { throw 'LOCAL_PACKAGE_BINDING' }
-        Write-Output $codeRoot
+        Write-LocalValidationResult $codeRoot
         exit 0
     }
     if ($Mode -eq 'CodeCleanup') {
@@ -171,7 +177,7 @@ try {
         for ($path = $root; $null -ne $path; $path = [IO.Path]::GetDirectoryName($path)) {
             if (Test-Path -LiteralPath $path) { Assert-PackagePath $path $true }
         }
-        Write-Output 'LOCAL_VALID'
+        Write-LocalValidationResult 'LOCAL_VALID'
         exit 0
     }
     if ($Mode -in @('Package', 'PackagePrepare')) {
@@ -190,14 +196,14 @@ try {
                 [IO.Directory]::CreateDirectory($directory, $acl) | Out-Null
                 Assert-PackagePath $directory
             }
-            foreach ($relative in @('LaunchLocalLeadYa.ps1', 'ValidateLocalInstall.ps1', 'LocalProfileRecovery.ps1', 'LaunchLocalLeadYa.vbs', 'leadya-nova-icon.ico', 'LeadyaCheckingProgram.bat', 'Uninstall.exe', 'leadya-code-home.txt', 'leadya-local-origin.txt')) {
+            foreach ($relative in @('LaunchLocalLeadYa.ps1', 'ValidateLocalInstall.ps1', 'LocalProfileRecovery.ps1', 'UninstallLocalLeadYa.ps1', 'LaunchLocalLeadYa.vbs', 'leadya-nova-icon.ico', 'LeadyaCheckingProgram.bat', 'Uninstall.exe', 'leadya-code-home.txt', 'leadya-local-origin.txt')) {
                 $file = Join-Path $package $relative
                 if (Test-Path -LiteralPath $file) { Assert-PackagePath $file }
                 else { $stream = New-PackageFileStream $file; $stream.Dispose(); Assert-PackagePath $file }
             }
         }
         if (Test-Path -LiteralPath $package) { Assert-PackagePath $package }
-        Write-Output $package
+        Write-LocalValidationResult $package
         exit 0
     }
     if ($Mode -in @('Mirror', 'Links', 'Unlink') -and -not $SeedDirectory) { throw 'LOCAL_PACKAGE_REQUIRED' }
@@ -318,13 +324,13 @@ try {
     if ($Mode -in @('Jre', 'JrePrepare', 'JreCreate', 'JreProbe')) {
         Assert-SharedJre $Mode
         if ($Mode -eq 'JreProbe') { Invoke-JavaProbe '-version' 15000 }
-        Write-Output 'LOCAL_VALID'
+        Write-LocalValidationResult 'LOCAL_VALID'
         exit 0
     }
     if ($Mode -eq 'Mirror') {
         if ($ProgramJar -notmatch '^CheckingProgram-[A-Za-z0-9.]+\.jar$') { throw 'LOCAL_JAR_NAME' }
         if ($elevated) {
-            try { Assert-ProtectedAncestors $root } catch { Write-Output 'LOCAL_MIRROR_DEFERRED'; exit 0 }
+            try { Assert-ProtectedAncestors $root } catch { Write-LocalValidationResult 'LOCAL_MIRROR_DEFERRED'; exit 0 }
             New-ProtectedDirectory $root
             Assert-ProtectedAncestors $root
         } else {
@@ -333,11 +339,11 @@ try {
             }
             [IO.Directory]::CreateDirectory($root) | Out-Null
         }
-        foreach ($relative in @($ProgramJar, 'LeadyaCheckingProgram.bat', 'LaunchLocalLeadYa.ps1', 'ValidateLocalInstall.ps1', 'LocalProfileRecovery.ps1', 'LaunchLocalLeadYa.vbs', 'leadya-nova-icon.ico', 'leadya-code-home.txt', 'leadya-local-origin.txt', 'checking_program_version.txt')) {
+        foreach ($relative in @($ProgramJar, 'LeadyaCheckingProgram.bat', 'LaunchLocalLeadYa.ps1', 'ValidateLocalInstall.ps1', 'LocalProfileRecovery.ps1', 'UninstallLocalLeadYa.ps1', 'LaunchLocalLeadYa.vbs', 'leadya-nova-icon.ico', 'leadya-code-home.txt', 'leadya-local-origin.txt', 'checking_program_version.txt')) {
             $source = Join-Path $package $relative
             if ([IO.File]::Exists($source)) { Publish-AtomicFile $source (Join-Path $root $relative) }
         }
-        Write-Output 'LOCAL_VALID'
+        Write-LocalValidationResult 'LOCAL_VALID'
         exit 0
     }
     if ($Mode -in @('Links', 'Unlink')) {
@@ -385,10 +391,10 @@ try {
             # Shared shortcuts are optional. Never repair a shared ACL or write past a failed check.
             # The ordinary launcher creates personal shortcuts after its non-elevated token guard.
             if ($Mode -eq 'Unlink') { throw }
-            Write-Output 'LOCAL_LINKS_DEFERRED'
+            Write-LocalValidationResult 'LOCAL_LINKS_DEFERRED'
             exit 0
         }
-        Write-Output 'LOCAL_VALID'
+        Write-LocalValidationResult 'LOCAL_VALID'
         exit 0
     }
     function Assert-LocalMarker([string]$RuntimePath) {
@@ -404,7 +410,7 @@ try {
             $previous = [IO.File]::ReadAllText($binding).TrimEnd("`r", "`n")
             if ($previous -in $candidates) { $candidates = @($previous) + @($candidates | Where-Object { $_ -ine $previous }) }
         }
-        Write-Output (Resolve-LocalRuntime $candidates)
+        Write-LocalValidationResult (Resolve-LocalRuntime $candidates)
         exit 0
     }
     if ($Mode -in @('Installed', 'Installable', 'Publish', 'Prepare', 'Seed') -and -not $SeedDirectory) { throw 'LOCAL_PACKAGE_REQUIRED' }
@@ -441,7 +447,7 @@ try {
         } finally { $sourceStream.Dispose() }
         if ([IO.File]::Exists($StagedJar)) { [IO.File]::Delete($StagedJar) }
         Assert-PackagePath $destination
-        Write-Output 'LOCAL_VALID'
+        Write-LocalValidationResult 'LOCAL_VALID'
         exit 0
     }
     $publishVersion = $Mode -eq 'Publish'
@@ -493,7 +499,7 @@ try {
             } finally { if ([IO.File]::Exists($temporary)) { [IO.File]::Delete($temporary) } }
         }
         [IO.Directory]::CreateDirectory((Join-Path $runtime 'bot_files')) | Out-Null
-        if ($Mode -eq 'Seed') { Write-Output 'LOCAL_VALID'; exit 0 }
+        if ($Mode -eq 'Seed') { Write-LocalValidationResult 'LOCAL_VALID'; exit 0 }
         $pendingRecovery = [IO.File]::Exists((Join-Path $runtime 'leadya-profile-recovery-pending.txt'))
         if ($pendingRecovery -or (-not [IO.File]::Exists((Join-Path $runtime 'bot_files\bot.properties')) -and
             -not [IO.File]::Exists((Join-Path $runtime 'leadya-profile-recovered.txt')))) {
@@ -601,12 +607,12 @@ try {
             }
         }
     }
-    Write-Output 'LOCAL_VALID'
+    Write-LocalValidationResult 'LOCAL_VALID'
     exit 0
 } catch {
     # Never print configuration, credentials or arbitrary exception content.
     $code = [string]$_.Exception.Message
     if ($code -notmatch '^LOCAL_[A-Z_]+$') { $code = 'LOCAL_VALIDATION_FAILED' }
-    Write-Output $code
+    Write-LocalValidationResult $code
     exit 12
 }

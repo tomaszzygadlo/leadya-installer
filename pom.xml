@@ -49,6 +49,9 @@
                 <execution><id>windows-profile-recovery-tests</id><phase>test</phase><goals><goal>exec</goal></goals><configuration>
                     <executable>powershell.exe</executable><arguments><argument>-NoProfile</argument><argument>-NonInteractive</argument><argument>-WindowStyle</argument><argument>Hidden</argument><argument>-ExecutionPolicy</argument><argument>Bypass</argument><argument>-File</argument><argument>${project.basedir}/Test-LocalProfileRecovery.ps1</argument></arguments>
                 </configuration></execution>
+                <execution><id>windows-uninstall-cleanup-tests</id><phase>test</phase><goals><goal>exec</goal></goals><configuration>
+                    <executable>powershell.exe</executable><arguments><argument>-NoProfile</argument><argument>-NonInteractive</argument><argument>-WindowStyle</argument><argument>Hidden</argument><argument>-ExecutionPolicy</argument><argument>Bypass</argument><argument>-File</argument><argument>${project.basedir}/Test-LocalUninstallCleanup.ps1</argument><argument>-NsisCompiler</argument><argument>${installer.compiler}</argument></arguments>
+                </configuration></execution>
                 <execution><id>windows-launcher-transport-tests</id><phase>test</phase><goals><goal>exec</goal></goals><configuration>
                     <executable>powershell.exe</executable><arguments><argument>-NoProfile</argument><argument>-NonInteractive</argument><argument>-WindowStyle</argument><argument>Hidden</argument><argument>-ExecutionPolicy</argument><argument>Bypass</argument><argument>-File</argument><argument>${project.basedir}/Test-LocalLauncherTransport.ps1</argument></arguments>
                 </configuration></execution>
