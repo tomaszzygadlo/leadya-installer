@@ -109,6 +109,6 @@ an exact live owner identity and a 90-second deadline set before dispatch.
 
 `Test-LocalUninstallCleanup.ps1 -NsisCompiler <supported makensis.exe>` tests deletion
 and preservation with disposable native fixtures. The separate
-`Test-LocalUninstallTransport.ps1 -Compiler <supported makensis.exe>` requires normal
-UAC consent and tests the actual admin callback with uniquely owned disposable data.
+`Test-LocalUninstallTransport.ps1 -Compiler <supported makensis.exe> -PluginDirectory <plugins>` requires
+one normal UAC consent and tests the actual admin callback with uniquely owned disposable data.
 It redirects only the Downloads boundary; it never deletes real downloaded installers.
