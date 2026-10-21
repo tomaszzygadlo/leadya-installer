@@ -122,6 +122,11 @@ Unicode True
   !insertmacro MUI_PAGE_INSTFILES
   !define MUI_FINISHPAGE_RUN
   !define MUI_FINISHPAGE_RUN_FUNCTION RunInstalledLocalApplication
+  !define MUI_FINISHPAGE_SHOWREADME ""
+  !define MUI_FINISHPAGE_SHOWREADME_TEXT "Zainstaluj też Google Chrome"
+  !define MUI_FINISHPAGE_SHOWREADME_NOTCHECKED
+  !define MUI_FINISHPAGE_SHOWREADME_FUNCTION InstallOptionalGoogleChrome
+  !define MUI_PAGE_CUSTOMFUNCTION_SHOW ConfigureChromeFinishPage
   !insertmacro MUI_PAGE_FINISH
 
   !insertmacro MUI_UNPAGE_CONFIRM
@@ -917,6 +922,7 @@ SectionIn 1
   !insertmacro WriteLocalLauncherBatch "$LocalTrustedHome\LeadyaCheckingProgram.bat"
   IfErrors LocalPayloadFailure
   File /oname=$LocalTrustedHome\LaunchLocalLeadYa.ps1 "LaunchLocalLeadYa.ps1"
+  File /oname=$LocalTrustedHome\InstallGoogleChrome.ps1 "InstallGoogleChrome.ps1"
   File /oname=$LocalTrustedHome\ValidateLocalInstall.ps1 "ValidateLocalInstall.ps1"
   File /oname=$LocalTrustedHome\LocalProfileRecovery.ps1 "LocalProfileRecovery.ps1"
   File /oname=$LocalTrustedHome\UninstallLocalLeadYa.ps1 "UninstallLocalLeadYa.ps1"
@@ -969,6 +975,25 @@ Function RunInstalledLocalApplication
   ; of Windows Script Host's optional VBS engine and its per-user file association.
   SetOutPath "$LocalTrustedHome"
   ShellExecAsUser::ShellExecAsUser "open" "$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" '-NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "$LocalTrustedHome\LaunchLocalLeadYa.ps1"' SW_HIDE
+FunctionEnd
+
+Function ConfigureChromeFinishPage
+  nsExec::ExecToStack '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "$LocalTrustedHome\InstallGoogleChrome.ps1" -DetectOnly'
+  Pop $0
+  Pop $1
+  StrCmp $0 "0" 0 ChromeNotInstalled
+  SendMessage $mui.FinishPage.ShowReadme ${BM_SETCHECK} ${BST_UNCHECKED} 0
+  ShowWindow $mui.FinishPage.ShowReadme ${SW_HIDE}
+  ChromeNotInstalled:
+FunctionEnd
+
+Function InstallOptionalGoogleChrome
+  nsExec::ExecToStack '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "$LocalTrustedHome\InstallGoogleChrome.ps1"'
+  Pop $0
+  Pop $1
+  StrCmp $0 "0" ChromeInstallDone
+  MessageBox MB_OK|MB_ICONEXCLAMATION "Nie udało się zainstalować Google Chrome. LeadYa jest zainstalowana. Możesz zainstalować Chrome później." /SD IDOK
+  ChromeInstallDone:
 FunctionEnd
 
 ;--------------------------------
@@ -1239,6 +1264,7 @@ Section "Uninstall" SecUninstallServer
   Delete /REBOOTOK "$INSTDIR\leadya-local-install.txt"
   Delete /REBOOTOK "$INSTDIR\LeadyaCheckingProgram.bat"
   Delete /REBOOTOK "$INSTDIR\LaunchLocalLeadYa.ps1"
+  Delete /REBOOTOK "$INSTDIR\InstallGoogleChrome.ps1"
   Delete /REBOOTOK "$INSTDIR\ValidateLocalInstall.ps1"
   Delete /REBOOTOK "$INSTDIR\LocalProfileRecovery.ps1"
   Delete /REBOOTOK "$INSTDIR\UninstallLocalLeadYa.ps1"
