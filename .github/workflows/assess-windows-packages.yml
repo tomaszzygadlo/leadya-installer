@@ -30,13 +30,25 @@ jobs:
           SLOT: ${{ inputs.slot }}
           BUNDLE_SHA256: ${{ inputs.bundle_sha256 }}
           PARTS: ${{ inputs.parts }}
+          RUNNER_KIND: ${{ runner.environment }}
         run: |
           $ErrorActionPreference = 'Stop'
           if ($env:SLOT -cnotmatch '^[0-9A-F]{32}$' -or $env:BUNDLE_SHA256 -cnotmatch '^[0-9a-f]{64}$' -or $env:PARTS -notmatch '^([1-9]|[12][0-9]|3[0-2])$') { throw 'Invalid assessment inputs' }
-          # This is a new dedicated GitHub VM, never the operator's computer.
-          # Enable protection; do not remove or bypass any exclusion or Allow rule.
-          Set-MpPreference -DisableRealtimeMonitoring $false -DisableArchiveScanning $false
+          if ($env:GITHUB_ACTIONS -cne 'true' -or $env:RUNNER_KIND -cne 'github-hosted' -or $env:GITHUB_REPOSITORY -cne 'tomaszzygadlo/leadya-installer' -or $env:RUNNER_OS -cne 'Windows') { throw 'Dedicated standard GitHub Windows VM required' }
+          # The standard image excludes both drives for build performance:
+          # actions/runner-images/images/windows/scripts/build/Configure-WindowsDefender.ps1.
+          # Prepare this disposable VM before materializing package files. Never run
+          # this preparation on the operator's computer or a self-hosted runner.
+          $initial = Get-MpPreference
+          foreach ($field in @('ExclusionProcess','ExclusionExtension','ThreatIDDefaultAction_Ids')) {
+            if (@($initial.$field | Where-Object { $null -ne $_ -and "$($_)".Trim().Length -gt 0 }).Count -gt 0) { throw 'Unexpected override on disposable assessment host' }
+          }
+          $imagePaths = @($initial.ExclusionPath | Where-Object { $null -ne $_ -and "$($_)".Trim().Length -gt 0 })
+          foreach ($path in $imagePaths) { if ($path -cnotin @('C:\','D:\')) { throw 'Unknown image exclusion refused' } }
+          foreach ($path in $imagePaths) { Remove-MpPreference -ExclusionPath $path }
+          Set-MpPreference -DisableRealtimeMonitoring $false -DisableArchiveScanning $false -DisableBehaviorMonitoring $false -DisableIOAVProtection $false -DisableScriptScanning $false
           Update-MpSignature
+          [ordered]@{runner_environment=$env:RUNNER_KIND; removed_image_exclusions=$imagePaths} | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath (Join-Path $env:RUNNER_TEMP 'leadya-assessment-host.json') -Encoding UTF8
           $helper = Join-Path $env:RUNNER_TEMP 'Leadya-InstallerReleaseSecurity.ps1'
           Invoke-WebRequest -UseBasicParsing -Uri 'https://raw.githubusercontent.com/tomaszzygadlo/leadya-installer/665e89e2272fdfa8331a36dbc6f2be77ecea43de/InstallerReleaseSecurity.ps1' -OutFile $helper
           if ((Get-FileHash -LiteralPath $helper -Algorithm SHA256).Hash.ToLowerInvariant() -ne 'b20c83c516f93864ab78237546f9076c86ab0cc2b101afcf0413ff845cc2fe4a') { throw 'Assessment helper integrity failure' }
@@ -133,5 +145,6 @@ jobs:
           if ([int]$after.SubmitSamplesConsent -ne $cloudPolicy.submit_samples_consent -or [int]$after.MAPSReporting -ne $cloudPolicy.maps_reporting) { throw 'Defender cloud policy changed' }
           # The workflow publishes no package to Git, logs or artifacts. Defender
           # may process samples in Microsoft's cloud according to this recorded policy.
-          $report = [ordered]@{schema='leadya-disposable-assessment/v1'; mode='ASSESSMENT_ONLY'; slot=$env:SLOT; bundle_sha256=$digest; run_id=$env:GITHUB_RUN_ID; workflow_commit=$env:GITHUB_SHA; defender_cloud_policy=$cloudPolicy; packages=$results}
+          $hostPreparation = Get-Content -LiteralPath (Join-Path $env:RUNNER_TEMP 'leadya-assessment-host.json') -Raw | ConvertFrom-Json
+          $report = [ordered]@{schema='leadya-disposable-assessment/v1'; mode='ASSESSMENT_ONLY'; slot=$env:SLOT; bundle_sha256=$digest; run_id=$env:GITHUB_RUN_ID; workflow_commit=$env:GITHUB_SHA; host_preparation=$hostPreparation; defender_cloud_policy=$cloudPolicy; packages=$results}
           Write-Output ('LEADYA_SCAN_EVIDENCE='+($report | ConvertTo-Json -Depth 10 -Compress))
