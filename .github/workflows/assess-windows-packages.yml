@@ -1,0 +1,137 @@
+name: Assess Windows packages
+run-name: Windows package assessment ${{ inputs.slot }}
+on:
+  workflow_dispatch:
+    inputs:
+      slot:
+        description: Unique uppercase hexadecimal assessment identifier
+        required: true
+        type: string
+      bundle_sha256:
+        description: SHA256 of the private ZIP supplied through temporary repository secrets
+        required: true
+        type: string
+      parts:
+        description: Number of base64 secret chunks (1 to 32)
+        required: true
+        type: string
+permissions: {}
+concurrency:
+  group: windows-package-assessment-${{ inputs.slot }}
+  cancel-in-progress: false
+jobs:
+  assess:
+    runs-on: windows-2022
+    timeout-minutes: 10
+    steps:
+      - name: Prepare disposable Windows assessment host
+        shell: powershell
+        env:
+          SLOT: ${{ inputs.slot }}
+          BUNDLE_SHA256: ${{ inputs.bundle_sha256 }}
+          PARTS: ${{ inputs.parts }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:SLOT -cnotmatch '^[0-9A-F]{32}$' -or $env:BUNDLE_SHA256 -cnotmatch '^[0-9a-f]{64}$' -or $env:PARTS -notmatch '^([1-9]|[12][0-9]|3[0-2])$') { throw 'Invalid assessment inputs' }
+          # This is a new dedicated GitHub VM, never the operator's computer.
+          # Enable protection; do not remove or bypass any exclusion or Allow rule.
+          Set-MpPreference -DisableRealtimeMonitoring $false -DisableArchiveScanning $false
+          Update-MpSignature
+          $helper = Join-Path $env:RUNNER_TEMP 'Leadya-InstallerReleaseSecurity.ps1'
+          Invoke-WebRequest -UseBasicParsing -Uri 'https://raw.githubusercontent.com/tomaszzygadlo/leadya-installer/665e89e2272fdfa8331a36dbc6f2be77ecea43de/InstallerReleaseSecurity.ps1' -OutFile $helper
+          if ((Get-FileHash -LiteralPath $helper -Algorithm SHA256).Hash.ToLowerInvariant() -ne 'b20c83c516f93864ab78237546f9076c86ab0cc2b101afcf0413ff845cc2fe4a') { throw 'Assessment helper integrity failure' }
+          . $helper
+          Assert-InstallerScanPolicy -Status (Get-MpComputerStatus) -Preferences (Get-MpPreference)
+          Assert-InstallerLocalThreatPolicy
+      - name: Assess final bytes without executing packages
+        shell: powershell
+        env:
+          SLOT: ${{ inputs.slot }}
+          BUNDLE_SHA256: ${{ inputs.bundle_sha256 }}
+          PARTS: ${{ inputs.parts }}
+          PACKAGE_PART_01: ${{ secrets[format('LEADYA_SCAN_{0}_01', inputs.slot)] }}
+          PACKAGE_PART_02: ${{ secrets[format('LEADYA_SCAN_{0}_02', inputs.slot)] }}
+          PACKAGE_PART_03: ${{ secrets[format('LEADYA_SCAN_{0}_03', inputs.slot)] }}
+          PACKAGE_PART_04: ${{ secrets[format('LEADYA_SCAN_{0}_04', inputs.slot)] }}
+          PACKAGE_PART_05: ${{ secrets[format('LEADYA_SCAN_{0}_05', inputs.slot)] }}
+          PACKAGE_PART_06: ${{ secrets[format('LEADYA_SCAN_{0}_06', inputs.slot)] }}
+          PACKAGE_PART_07: ${{ secrets[format('LEADYA_SCAN_{0}_07', inputs.slot)] }}
+          PACKAGE_PART_08: ${{ secrets[format('LEADYA_SCAN_{0}_08', inputs.slot)] }}
+          PACKAGE_PART_09: ${{ secrets[format('LEADYA_SCAN_{0}_09', inputs.slot)] }}
+          PACKAGE_PART_10: ${{ secrets[format('LEADYA_SCAN_{0}_10', inputs.slot)] }}
+          PACKAGE_PART_11: ${{ secrets[format('LEADYA_SCAN_{0}_11', inputs.slot)] }}
+          PACKAGE_PART_12: ${{ secrets[format('LEADYA_SCAN_{0}_12', inputs.slot)] }}
+          PACKAGE_PART_13: ${{ secrets[format('LEADYA_SCAN_{0}_13', inputs.slot)] }}
+          PACKAGE_PART_14: ${{ secrets[format('LEADYA_SCAN_{0}_14', inputs.slot)] }}
+          PACKAGE_PART_15: ${{ secrets[format('LEADYA_SCAN_{0}_15', inputs.slot)] }}
+          PACKAGE_PART_16: ${{ secrets[format('LEADYA_SCAN_{0}_16', inputs.slot)] }}
+          PACKAGE_PART_17: ${{ secrets[format('LEADYA_SCAN_{0}_17', inputs.slot)] }}
+          PACKAGE_PART_18: ${{ secrets[format('LEADYA_SCAN_{0}_18', inputs.slot)] }}
+          PACKAGE_PART_19: ${{ secrets[format('LEADYA_SCAN_{0}_19', inputs.slot)] }}
+          PACKAGE_PART_20: ${{ secrets[format('LEADYA_SCAN_{0}_20', inputs.slot)] }}
+          PACKAGE_PART_21: ${{ secrets[format('LEADYA_SCAN_{0}_21', inputs.slot)] }}
+          PACKAGE_PART_22: ${{ secrets[format('LEADYA_SCAN_{0}_22', inputs.slot)] }}
+          PACKAGE_PART_23: ${{ secrets[format('LEADYA_SCAN_{0}_23', inputs.slot)] }}
+          PACKAGE_PART_24: ${{ secrets[format('LEADYA_SCAN_{0}_24', inputs.slot)] }}
+          PACKAGE_PART_25: ${{ secrets[format('LEADYA_SCAN_{0}_25', inputs.slot)] }}
+          PACKAGE_PART_26: ${{ secrets[format('LEADYA_SCAN_{0}_26', inputs.slot)] }}
+          PACKAGE_PART_27: ${{ secrets[format('LEADYA_SCAN_{0}_27', inputs.slot)] }}
+          PACKAGE_PART_28: ${{ secrets[format('LEADYA_SCAN_{0}_28', inputs.slot)] }}
+          PACKAGE_PART_29: ${{ secrets[format('LEADYA_SCAN_{0}_29', inputs.slot)] }}
+          PACKAGE_PART_30: ${{ secrets[format('LEADYA_SCAN_{0}_30', inputs.slot)] }}
+          PACKAGE_PART_31: ${{ secrets[format('LEADYA_SCAN_{0}_31', inputs.slot)] }}
+          PACKAGE_PART_32: ${{ secrets[format('LEADYA_SCAN_{0}_32', inputs.slot)] }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Add-Type -AssemblyName System.IO.Compression
+          . (Join-Path $env:RUNNER_TEMP 'Leadya-InstallerReleaseSecurity.ps1')
+          $preferences = Get-MpPreference
+          if ($null -eq $preferences.SubmitSamplesConsent -or $null -eq $preferences.MAPSReporting) { throw 'Defender cloud policy unavailable' }
+          $cloudPolicy = [ordered]@{submit_samples_consent=[int]$preferences.SubmitSamplesConsent; maps_reporting=[int]$preferences.MAPSReporting}
+          $chunks = for ($i=1; $i -le [int]$env:PARTS; $i++) {
+            $value = [Environment]::GetEnvironmentVariable(('PACKAGE_PART_{0:d2}' -f $i))
+            if ([string]::IsNullOrEmpty($value) -or $value.Length -gt 24000) { throw 'Missing or oversized package chunk' }
+            $value
+          }
+          for ($i=1; $i -le 32; $i++) { [Environment]::SetEnvironmentVariable(('PACKAGE_PART_{0:d2}' -f $i),$null) }
+          [byte[]]$bytes = [Convert]::FromBase64String(($chunks -join ''))
+          $chunks = $null
+          if ($bytes.Length -gt 1048576) { throw 'Oversized assessment bundle' }
+          $sha = [Security.Cryptography.SHA256]::Create()
+          try { $digest = ([BitConverter]::ToString($sha.ComputeHash($bytes))).Replace('-','').ToLowerInvariant() } finally { $sha.Dispose() }
+          if ($digest -cne $env:BUNDLE_SHA256) { throw 'Assessment bundle integrity failure' }
+          $root = Join-Path $env:RUNNER_TEMP ('leadya-assessment-'+$env:SLOT)
+          if (Test-Path -LiteralPath $root) { throw 'Assessment directory already exists' }
+          [IO.Directory]::CreateDirectory($root) | Out-Null
+          $memory = [IO.MemoryStream]::new($bytes)
+          $archive = [IO.Compression.ZipArchive]::new($memory,[IO.Compression.ZipArchiveMode]::Read)
+          $results = @()
+          try {
+            if ($archive.Entries.Count -lt 1 -or $archive.Entries.Count -gt 4) { throw 'Invalid package count' }
+            $names = @{}
+            foreach ($entry in $archive.Entries) {
+              if ($entry.FullName -cnotmatch '^Leadya(Vps)?Installer-[A-Z_]+\.exe$' -or $names.ContainsKey($entry.FullName) -or $entry.Length -lt 1 -or $entry.Length -gt 8388608) { throw 'Invalid package entry' }
+              $names[$entry.FullName] = $true
+              $path = Join-Path $root $entry.FullName
+              $entryStream = $entry.Open()
+              $output = [IO.File]::Open($path,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
+              try {
+                $buffer = New-Object byte[] 16384
+                $total = 0
+                while (($count = $entryStream.Read($buffer,0,$buffer.Length)) -gt 0) {
+                  $total += $count
+                  if ($total -gt 8388608) { throw 'Expanded package limit exceeded' }
+                  $output.Write($buffer,0,$count)
+                }
+                if ($total -ne $entry.Length) { throw 'Truncated package entry' }
+              } finally { $entryStream.Dispose(); $output.Dispose() }
+              $evidence = Get-InstallerReleaseSecurityEvidence -Path $path -AssessmentOnly
+              $results += [ordered]@{filename=$entry.FullName; evidence=$evidence}
+            }
+          } finally { $archive.Dispose(); $memory.Dispose() }
+          $after = Get-MpPreference
+          if ([int]$after.SubmitSamplesConsent -ne $cloudPolicy.submit_samples_consent -or [int]$after.MAPSReporting -ne $cloudPolicy.maps_reporting) { throw 'Defender cloud policy changed' }
+          # The workflow publishes no package to Git, logs or artifacts. Defender
+          # may process samples in Microsoft's cloud according to this recorded policy.
+          $report = [ordered]@{schema='leadya-disposable-assessment/v1'; mode='ASSESSMENT_ONLY'; slot=$env:SLOT; bundle_sha256=$digest; run_id=$env:GITHUB_RUN_ID; workflow_commit=$env:GITHUB_SHA; defender_cloud_policy=$cloudPolicy; packages=$results}
+          Write-Output ('LEADYA_SCAN_EVIDENCE='+($report | ConvertTo-Json -Depth 10 -Compress))
