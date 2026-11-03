@@ -21,7 +21,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   assess:
-    runs-on: windows-2022
+    runs-on: windows-11-arm
     timeout-minutes: 10
     steps:
       - name: Prepare disposable Windows assessment host
