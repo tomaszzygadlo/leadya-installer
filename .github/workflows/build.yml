@@ -27,8 +27,8 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: '3.12'
-      - name: Check dependency download boundaries
-        run: python -m unittest -v test_ci_bootstrap
+      - name: Check dependency and assessment workflow boundaries
+        run: python -m unittest -v test_ci_bootstrap test_assessment_workflow
       - name: Prepare pinned official compiler and plugins
         run: python ci_bootstrap.py --output "$env:RUNNER_TEMP\leadya-nsis" --seven-zip "C:\Program Files\7-Zip\7z.exe"
       - name: Build and test through Maven

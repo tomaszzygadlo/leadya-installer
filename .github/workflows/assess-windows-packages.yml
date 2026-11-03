@@ -47,14 +47,42 @@ jobs:
           foreach ($path in $imagePaths) { if ($path -cnotin @('C:\','D:\')) { throw 'Unknown image exclusion refused' } }
           foreach ($path in $imagePaths) { Remove-MpPreference -ExclusionPath $path }
           Set-MpPreference -DisableRealtimeMonitoring $false -DisableArchiveScanning $false -DisableBehaviorMonitoring $false -DisableIOAVProtection $false -DisableScriptScanning $false
-          Update-MpSignature
-          [ordered]@{runner_environment=$env:RUNNER_KIND; removed_image_exclusions=$imagePaths} | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath (Join-Path $env:RUNNER_TEMP 'leadya-assessment-host.json') -Encoding UTF8
           $helper = Join-Path $env:RUNNER_TEMP 'Leadya-InstallerReleaseSecurity.ps1'
           Invoke-WebRequest -UseBasicParsing -Uri 'https://raw.githubusercontent.com/tomaszzygadlo/leadya-installer/665e89e2272fdfa8331a36dbc6f2be77ecea43de/InstallerReleaseSecurity.ps1' -OutFile $helper
           if ((Get-FileHash -LiteralPath $helper -Algorithm SHA256).Hash.ToLowerInvariant() -ne 'b20c83c516f93864ab78237546f9076c86ab0cc2b101afcf0413ff845cc2fe4a') { throw 'Assessment helper integrity failure' }
           . $helper
-          Assert-InstallerScanPolicy -Status (Get-MpComputerStatus) -Preferences (Get-MpPreference)
-          Assert-InstallerLocalThreatPolicy
+          function Wait-QualifiedDefenderDefinitions {
+            param([Parameter(Mandatory=$true)][System.Collections.IDictionary]$Evidence)
+            $Evidence['qualified']=$false
+            $Evidence['qualification_checks']=0
+            $Evidence['update_attempts']=0
+            $Evidence['update_failures']=0
+            $Evidence['update_errors']=@()
+            for ($check=1; $check -le 3; $check++) {
+              $Evidence['qualification_checks']=$check
+              try {
+                Assert-InstallerScanPolicy -Status (Get-MpComputerStatus) -Preferences (Get-MpPreference)
+                Assert-InstallerLocalThreatPolicy
+                $Evidence['qualified']=$true
+                return
+              } catch {
+                if ($check -eq 3) { throw 'Defender assessment policy did not qualify after three checks' }
+              }
+              $Evidence['update_attempts']++
+              try { Update-MpSignature -UpdateSource MMPC -ErrorAction Stop }
+              catch {
+                $Evidence['update_failures']++
+                # Record the command failure without disclosing arbitrary exception messages.
+                $Evidence['update_errors']+=@{type=$_.Exception.GetType().FullName; hresult=('0x{0:X8}' -f $_.Exception.HResult)}
+              }
+              Start-Sleep -Seconds 10
+            }
+          }
+          $hostPreparation=[ordered]@{runner_environment=$env:RUNNER_KIND; removed_image_exclusions=$imagePaths; defender_readiness=[ordered]@{}}
+          try { Wait-QualifiedDefenderDefinitions -Evidence $hostPreparation.defender_readiness }
+          finally {
+            $hostPreparation | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $env:RUNNER_TEMP 'leadya-assessment-host.json') -Encoding UTF8
+          }
       - name: Assess final bytes without executing packages
         shell: powershell
         env:
