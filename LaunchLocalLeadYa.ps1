@@ -125,6 +125,103 @@ function Wait-LocalLaunchMemory([int]$Milliseconds) {
     }
 }
 
+function Start-LocalLaunchNotice([string]$Package) {
+    if ($NoDialog) { return $null }
+    try {
+        # The window runs on its own STA thread, so blocking validation and Java startup never freeze it.
+        $notice = [hashtable]::Synchronized(@{ Close=$false; Closed=$false; Window=[IntPtr]::Zero })
+        $runspace = [runspacefactory]::CreateRunspace()
+        $runspace.ApartmentState = 'STA'
+        $runspace.ThreadOptions = 'ReuseThread'
+        $runspace.Open()
+        $shell = [powershell]::Create()
+        $shell.Runspace = $runspace
+        [void]$shell.AddScript({
+            param($Notice, [bool]$Polish, [string]$Icon)
+            try {
+                Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+                [Windows.Forms.Application]::EnableVisualStyles()
+                $form = New-Object Windows.Forms.Form
+                $form.Text = 'LeadYa'
+                $form.FormBorderStyle = 'FixedDialog'
+                $form.MaximizeBox = $false
+                $form.MinimizeBox = $false
+                $form.StartPosition = 'CenterScreen'
+                $form.TopMost = $true
+                $form.AutoSize = $true
+                $form.AutoSizeMode = 'GrowAndShrink'
+                $form.Padding = New-Object Windows.Forms.Padding(12)
+                if ([IO.File]::Exists($Icon)) { try { $form.Icon = New-Object Drawing.Icon($Icon) } catch { } }
+                $layout = New-Object Windows.Forms.TableLayoutPanel
+                $layout.AutoSize = $true
+                $layout.ColumnCount = 1
+                $title = New-Object Windows.Forms.Label
+                $title.AutoSize = $true
+                $title.Font = New-Object Drawing.Font('Segoe UI', 13, [Drawing.FontStyle]::Bold)
+                $title.Text = if ($Polish) { 'LeadYa się uruchamia…' } else { 'LeadYa is starting…' }
+                $detail = New-Object Windows.Forms.Label
+                $detail.AutoSize = $true
+                $detail.MaximumSize = New-Object Drawing.Size(360, 0)
+                $detail.Margin = New-Object Windows.Forms.Padding(3, 8, 3, 12)
+                $detail.Font = New-Object Drawing.Font('Segoe UI', 10)
+                $detail.Text = if ($Polish) { 'Za chwilę pojawi się okno programu. Nie musisz klikać ponownie.' } else { 'The program window will appear shortly. You do not need to click again.' }
+                $progress = New-Object Windows.Forms.ProgressBar
+                $progress.Style = 'Marquee'
+                $progress.MarqueeAnimationSpeed = 30
+                $progress.Size = New-Object Drawing.Size(360, 14)
+                $layout.Controls.AddRange(@($title, $detail, $progress))
+                $form.Controls.Add($layout)
+                $timer = New-Object Windows.Forms.Timer
+                $timer.Interval = 150
+                $timer.add_Tick({ if ($Notice.Close) { $form.Close() } })
+                $form.add_Shown({ $Notice.Window = $form.Handle; $timer.Start() })
+                $form.add_FormClosed({ $timer.Stop(); $Notice.Closed = $true })
+                if (-not $Notice.Close) { [Windows.Forms.Application]::Run($form) }
+            } finally { $Notice.Closed = $true }
+        }).AddArgument($notice).AddArgument(([Globalization.CultureInfo]::CurrentUICulture.TwoLetterISOLanguageName -eq 'pl')).AddArgument((Join-Path $Package 'leadya-nova-icon.ico'))
+        $notice.Shell = $shell
+        $notice.Runspace = $runspace
+        $notice.Handle = $shell.BeginInvoke()
+        return $notice
+    } catch {
+        Write-Warning 'LeadYa startup notice is unavailable'
+        return $null
+    }
+}
+
+function Stop-LocalLaunchNotice($Notice) {
+    # Returns $false while the notice window may still be open.
+    if (-not $Notice) { return $true }
+    if ($Notice.Stopped) { return [bool]$Notice.Released }
+    $Notice.Stopped = $true
+    $Notice.Close = $true
+    try {
+        if ($Notice.Handle.AsyncWaitHandle.WaitOne(3000)) {
+            try { [void]$Notice.Shell.EndInvoke($Notice.Handle) } catch { }
+            $Notice.Shell.Dispose()
+            $Notice.Runspace.Dispose()
+            $Notice.Released = $true
+        }
+    } catch { Write-Warning 'LeadYa startup notice could not be closed' }
+    return [bool]$Notice.Released
+}
+
+function Wait-LocalClientWindow($Notice, [string]$JavaDirectory, [DateTime]$Since, [int]$Milliseconds) {
+    # Only a window of a bundled-Java process started after this click counts; older LeadYa windows do not.
+    $deadline = [DateTime]::UtcNow.AddMilliseconds($Milliseconds)
+    while ([DateTime]::UtcNow -lt $deadline) {
+        if ($Notice.Closed) { return 'CLOSED' }
+        foreach ($process in @(Get-Process -Name java, javaw -ErrorAction SilentlyContinue)) {
+            try {
+                if ($process.MainWindowHandle -ne [IntPtr]::Zero -and $process.StartTime -ge $Since -and
+                    [IO.Path]::GetDirectoryName($process.Path) -ieq $JavaDirectory) { return 'SHOWN' }
+            } catch { } finally { $process.Dispose() }
+        }
+        Start-Sleep -Milliseconds 250
+    }
+    return 'TIMEOUT'
+}
+
 function Invoke-LocalLaunchPreparation([scriptblock]$Attempt, [scriptblock]$SessionAlive,
     [ValidateSet('PREPARE', 'BOOTSTRAP')][string]$Phase = 'PREPARE') {
     $notified = $false
@@ -179,6 +276,9 @@ $env:PSModulePath = Join-Path $PSHOME 'Modules'
 $launchMessage = 'LeadYa could not start. Diagnostic code:'
 $stage = 'START'
 $launchMutex = $null
+$launchNotice = $null
+$launchStarted = [DateTime]::Now
+$script:launchExitCode = 0
 $script:startupLog = $null
 $script:memoryNotice = $null
 $script:memoryNoticeShown = $false
@@ -188,6 +288,7 @@ try {
         $launchMessage = 'LeadYa is installed. Open LeadYa from the Start menu without Run as administrator.'
         throw 'LOCAL_ELEVATED_RUNTIME'
     }
+    $launchNotice = Start-LocalLaunchNotice $PSScriptRoot
     $binding = Join-Path $PSScriptRoot 'leadya-code-home.txt'
     $codeRoot = if ([IO.File]::Exists($binding)) { [IO.File]::ReadAllText($binding).TrimEnd("`r", "`n") } else { $PSScriptRoot }
     $origin = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'leadya-local-origin.txt')).Trim()
@@ -269,17 +370,32 @@ try {
         Invoke-LocalLaunchBootstrap $start
     }
     Write-LocalLaunchEvent $bootstrap.State 'LOCAL_VALID'
+    # A client update relaunches this launcher; the gate must not be held only to wait for the window.
+    $launchMutex.ReleaseMutex()
+    $launchMutex.Dispose()
+    $launchMutex = $null
+    if ($launchNotice -and $bootstrap.State -ceq 'START_REQUESTED') {
+        try {
+            $window = Wait-LocalClientWindow $launchNotice (Split-Path $java) $launchStarted 120000
+            Write-LocalLaunchEvent ('WINDOW_' + $window) $(if ($window -ceq 'TIMEOUT') { 'LOCAL_WINDOW_TIMEOUT' } else { 'LOCAL_VALID' })
+        } catch { Write-Warning 'LeadYa window wait is unavailable' }
+    }
     exit 0
 } catch {
+    $script:launchExitCode = 1
     $code = ConvertTo-LocalLaunchCode $_.Exception.Message
     Write-LocalLaunchEvent ($stage + '_FAILED') $code
     Write-Error ("LeadYa startup failed: " + $stage + ' ' + $code) -ErrorAction Continue
+    [void](Stop-LocalLaunchNotice $launchNotice)
     if (-not $NoDialog -and $code -cne 'LOCAL_LAUNCH_SESSION_ENDED') {
         Add-Type -AssemblyName System.Windows.Forms
         [Windows.Forms.MessageBox]::Show(($launchMessage + "`n`n" + $stage + ': ' + $code), 'LeadYa') | Out-Null
     }
     exit 1
 } finally {
+    $noticeReleased = Stop-LocalLaunchNotice $launchNotice
     if ($script:memoryNotice) { $script:memoryNotice.Dispose() }
     if ($launchMutex) { $launchMutex.ReleaseMutex(); $launchMutex.Dispose() }
+    # PowerShell's own shutdown waits forever for an open window; after all cleanup, never leave a hung launcher.
+    if (-not $noticeReleased) { [Environment]::Exit([int]$script:launchExitCode) }
 }

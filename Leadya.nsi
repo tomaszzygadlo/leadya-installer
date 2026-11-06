@@ -51,6 +51,7 @@ Var LocalDirectoryPath
 Var LocalDirectoryRestore
 Var LocalDirectorySpace
 Var LocalDirectorySpaceReady
+Var LocalFailureCode
 
 !define LEADYA_DEFAULT_INSTALL_DIR "$PROGRAMFILES64\Leadya"
 !define LEADYA_LOCAL_INSTALL_SIZE_KB 15360
@@ -58,7 +59,7 @@ Var LocalDirectorySpaceReady
 !define /math LEADYA_LOCAL_INSTALL_SIZE_MB ${LEADYA_LOCAL_INSTALL_SIZE_KB} / 1024
 
 !define LOCAL_INSTALL_STATE_KEY "Software\Leadya\Server"
-!define LEADYA_VALIDATOR_SHA256 "0DC181FE11FA47B82115A0E55F347290F25A754B9202379A89BA20485AD443DB"
+!define LEADYA_VALIDATOR_SHA256 "BA134851784D9B0F64FB261A87EFC3F76487A717CA08AB47259F056FBB5838C9"
 !define LEADYA_TRUSTED_DOWNLOADS
 ; Elevated downloads use an admin-owned package, never a writable code folder or per-user runtime.
 !define LEADYA_INSTALL_DOWNLOAD_DIR "$LocalTrustedHome"
@@ -170,18 +171,22 @@ ShowInstDetails show
   !include "Language\Ukrainian.nsh"
   !include "Language\Czech.nsh"
 
-!macro LocalValidationMessages LANG DESTINATION FAILED
+!macro LocalValidationMessages LANG DESTINATION FAILED SUPPORT
   LangString LocalDestinationUnsafe ${LANG} "${DESTINATION}"
   LangString LocalInstallationFailed ${LANG} "${FAILED}"
+  LangString LocalSupportCode ${LANG} "${SUPPORT}"
 !macroend
-!insertmacro LocalValidationMessages ${LANG_POLISH} "Nie można bezpiecznie zainstalować programu w tym folderze. Wybierz lokalizację w Program Files lub prywatnym profilu użytkownika." "Nie udało się potwierdzić poprawnej instalacji. Poprzednia lokalizacja instalacji została zachowana. Sprawdź dziennik instalatora."
-!insertmacro LocalValidationMessages ${LANG_ENGLISH} "This folder cannot safely host the application. Choose a location in Program Files or your private user profile." "Installation could not be verified. The previously completed installation location has been retained. Check the installer log."
-!insertmacro LocalValidationMessages ${LANG_GERMAN} "This folder cannot safely host the application. Choose a location in Program Files or your private user profile." "Installation could not be verified. The previously completed installation location has been retained. Check the installer log."
-!insertmacro LocalValidationMessages ${LANG_RUSSIAN} "This folder cannot safely host the application. Choose a location in Program Files or your private user profile." "Installation could not be verified. The previously completed installation location has been retained. Check the installer log."
-!insertmacro LocalValidationMessages ${LANG_SPANISH} "This folder cannot safely host the application. Choose a location in Program Files or your private user profile." "Installation could not be verified. The previously completed installation location has been retained. Check the installer log."
-!insertmacro LocalValidationMessages ${LANG_ITALIAN} "This folder cannot safely host the application. Choose a location in Program Files or your private user profile." "Installation could not be verified. The previously completed installation location has been retained. Check the installer log."
-!insertmacro LocalValidationMessages ${LANG_UKRAINIAN} "This folder cannot safely host the application. Choose a location in Program Files or your private user profile." "Installation could not be verified. The previously completed installation location has been retained. Check the installer log."
-!insertmacro LocalValidationMessages ${LANG_CZECH} "This folder cannot safely host the application. Choose a location in Program Files or your private user profile." "Installation could not be verified. The previously completed installation location has been retained. Check the installer log."
+!define LEADYA_FAILED_PL "Nie udało się dokończyć instalacji LeadYa. Twoje logowanie i ustawienia LeadYa są zachowane.$\r$\n$\r$\nUruchom instalator jeszcze raz. Jeśli ten komunikat wróci, zrób zdjęcie tego okna i wyślij je do nas."
+!define LEADYA_FAILED_EN "LeadYa could not finish the installation. Your LeadYa sign-in and settings are kept.$\r$\n$\r$\nRun the installer again. If this message comes back, take a photo of this window and send it to us."
+!define LEADYA_UNSAFE_EN "This folder cannot safely host the application. Choose a location in Program Files or your private user profile."
+!insertmacro LocalValidationMessages ${LANG_POLISH} "Nie można bezpiecznie zainstalować programu w tym folderze. Wybierz lokalizację w Program Files lub prywatnym profilu użytkownika." "${LEADYA_FAILED_PL}" "Kod dla pomocy technicznej:"
+!insertmacro LocalValidationMessages ${LANG_ENGLISH} "${LEADYA_UNSAFE_EN}" "${LEADYA_FAILED_EN}" "Code for technical support:"
+!insertmacro LocalValidationMessages ${LANG_GERMAN} "${LEADYA_UNSAFE_EN}" "${LEADYA_FAILED_EN}" "Code for technical support:"
+!insertmacro LocalValidationMessages ${LANG_RUSSIAN} "${LEADYA_UNSAFE_EN}" "${LEADYA_FAILED_EN}" "Code for technical support:"
+!insertmacro LocalValidationMessages ${LANG_SPANISH} "${LEADYA_UNSAFE_EN}" "${LEADYA_FAILED_EN}" "Code for technical support:"
+!insertmacro LocalValidationMessages ${LANG_ITALIAN} "${LEADYA_UNSAFE_EN}" "${LEADYA_FAILED_EN}" "Code for technical support:"
+!insertmacro LocalValidationMessages ${LANG_UKRAINIAN} "${LEADYA_UNSAFE_EN}" "${LEADYA_FAILED_EN}" "Code for technical support:"
+!insertmacro LocalValidationMessages ${LANG_CZECH} "${LEADYA_UNSAFE_EN}" "${LEADYA_FAILED_EN}" "Code for technical support:"
 
 ; BEGIN LOCAL INSTALL COMPLETION
 !macro ValidatorEnvironment name value failure
@@ -257,6 +262,32 @@ Function ValidateLocalInstallation
   !insertmacro InvokePinnedLocalValidator Install
 FunctionEnd
 
+!macro ShowLocalStepFailure CODE STAGE
+  ; A LOCAL step that fails outside the pinned validator reports its own fixed support code.
+  StrCpy $LocalValidationResult "12"
+  StrCpy $LocalValidationOutput "${CODE}"
+  StrCpy $LocalValidationMode "${STAGE}"
+  Call ShowLocalInstallationFailure
+!macroend
+
+Function ShowLocalInstallationFailure
+  ; A failed validator emits only a fixed LOCAL_* code, never a path, ACL or configuration value.
+  ${StrRep} $LocalFailureCode $LocalValidationOutput "$\r" ""
+  ${StrRep} $LocalFailureCode $LocalFailureCode "$\n" ""
+  StrCmp $LocalValidationResult "0" LocalFailureStep
+  StrCpy $0 $LocalFailureCode 6
+  StrCmpS $0 "LOCAL_" LocalFailureCodeReady
+  LocalFailureStep:
+  StrCpy $LocalFailureCode "LOCAL_STEP_FAILED"
+  LocalFailureCodeReady:
+  ; Before .onInit resolves the protected package there is no log folder; the dialog carries the code.
+  StrCmp $LocalTrustedHome "" LocalFailureShow
+  ${LogLine} "(Failure) $LocalValidationMode $LocalValidationResult $LocalFailureCode"
+  LocalFailureShow:
+  DetailPrint "$(LocalSupportCode) $LocalFailureCode ($LocalValidationMode)"
+  MessageBox MB_OK|MB_ICONEXCLAMATION "$(LocalInstallationFailed)$\r$\n$\r$\n$(LocalSupportCode) $LocalFailureCode ($LocalValidationMode)" /SD IDOK
+FunctionEnd
+
 Function AllocateLocalDownload
   StrCpy $LocalValidationMode "PackageTemp"
   Call ValidateLocalInstallation
@@ -271,6 +302,7 @@ Function RequireTrustedLocalJre
   Call ValidateLocalInstallation
   StrCmp $LocalValidationResult "0" LocalJreTrusted
   DetailPrint "Shared Java custody refused: $LocalValidationOutput"
+  Call ShowLocalInstallationFailure
   SetErrorLevel 12
   Abort
   LocalJreTrusted:
@@ -317,7 +349,7 @@ Function ResolveLocalRuntimeHome
   StrCmp $LocalValidationResult "0" 0 LocalRuntimeResolutionFailed
   Return
   LocalRuntimeResolutionFailed:
-  MessageBox MB_OK|MB_ICONEXCLAMATION "$(LocalInstallationFailed)" /SD IDOK
+  Call ShowLocalInstallationFailure
   SetErrorLevel 12
   Quit
 FunctionEnd
@@ -858,9 +890,11 @@ SectionIn 1
   StrCpy $LocalClassifyCodeOnly "0"
   StrCpy $LocalValidationMode "PackagePrepare"
   Call ValidateLocalInstallation
-  StrCmp $LocalValidationResult "0" +3
+  StrCmp $LocalValidationResult "0" LocalPackagePrepared
+  Call ShowLocalInstallationFailure
   SetErrorLevel 12
   Abort
+  LocalPackagePrepared:
 
   ${LogLine} "(SecServer) Setting output path"
   SetOutPath "$LocalTrustedHome"
@@ -918,6 +952,8 @@ SectionIn 1
   StrCpy $LocalValidationMode "PackageSeed"
   Call ValidateLocalInstallation
   StrCmp $LocalValidationResult "0" 0 LocalPayloadFailure
+  ; Names the step for support if writing the protected package files fails below.
+  StrCpy $LocalValidationMode "PackageFiles"
   ClearErrors
   !insertmacro WriteLocalLauncherBatch "$LocalTrustedHome\LeadyaCheckingProgram.bat"
   IfErrors LocalPayloadFailure
@@ -953,7 +989,7 @@ SectionIn 1
   Call ValidateLocalInstallation
   ${LogLine} "(SecServer) Final validation: $LocalValidationResult $LocalValidationOutput"
   StrCmp $LocalValidationResult "0" LocalInstallationVerified
-  MessageBox MB_OK|MB_ICONEXCLAMATION "$(LocalInstallationFailed)" /SD IDOK
+  Call ShowLocalInstallationFailure
   SetErrorLevel 12
   Abort
   LocalInstallationVerified:
@@ -961,7 +997,7 @@ SectionIn 1
   ${LogLine} "(SecServer) Finished"
   Goto LocalPayloadDone
   LocalPayloadFailure:
-  MessageBox MB_OK|MB_ICONEXCLAMATION "$(LocalInstallationFailed)" /SD IDOK
+  Call ShowLocalInstallationFailure
   SetErrorLevel 12
   Abort
   LocalPayloadDone:
@@ -1039,6 +1075,7 @@ SectionIn 1
   DetailPrint "$(LOG_sharedShortcutDeferred)"
   DetailPrint "$LocalTrustedHome\LaunchLocalLeadYa.vbs"
   LocalSharedLinksDone:
+  StrCpy $LocalValidationMode "Registry"
   ClearErrors
   Call CommitCompletedLocalInstallation
   IfErrors LocalInstallationCommitFailed
@@ -1046,7 +1083,7 @@ SectionIn 1
   LocalInstallationSuccessDone:
   Goto LocalInstallationCommitDone
   LocalInstallationCommitFailed:
-  MessageBox MB_OK|MB_ICONEXCLAMATION "$(LocalInstallationFailed)" /SD IDOK
+  Call ShowLocalInstallationFailure
   SetErrorLevel 13
   Abort
   LocalInstallationCommitDone:

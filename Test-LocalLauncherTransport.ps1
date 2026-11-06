@@ -135,6 +135,70 @@ try {
         Write-Output 'PASS: real pinned JRE allocation failure, bounded early capture and surviving late stdout/stderr writes'
     } else { Write-Output 'SKIP: pinned JRE and javac required for real Java stream handoff scenario' }
     Write-Output 'PASS: immediate startup without resource queries, 3s actual OOM retry, policy refusal, session end, safe log and real concurrent JVM pipes'
+    foreach ($name in @('Start-LocalLaunchNotice', 'Stop-LocalLaunchNotice', 'Wait-LocalClientWindow')) {
+        $definition = $launcherTree.Find({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name }, $true)
+        if (-not $definition) { throw "Missing startup notice function: $name" }
+        Invoke-Expression $definition.Extent.Text
+    }
+    Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class NoticeWindow { [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr window); }'
+    $NoDialog = $true
+    if (Start-LocalLaunchNotice $fixture) { throw 'A launch without dialogs must not show the startup notice' }
+    $NoDialog = $false
+    $notice = Start-LocalLaunchNotice $fixture
+    try {
+        if (-not $notice) { throw 'The startup notice was not created' }
+        $deadline = [DateTime]::UtcNow.AddSeconds(10)
+        while ($notice.Window -eq [IntPtr]::Zero -and [DateTime]::UtcNow -lt $deadline) { Start-Sleep -Milliseconds 50 }
+        if (-not [NoticeWindow]::IsWindowVisible($notice.Window)) { throw 'The startup notice did not appear as a visible window' }
+    } finally { $released = Stop-LocalLaunchNotice $notice }
+    if (-not $released -or -not $notice.Closed -or [NoticeWindow]::IsWindowVisible($notice.Window)) { throw 'Stopping the startup notice must close its window' }
+    if (-not (Stop-LocalLaunchNotice $notice) -or -not (Stop-LocalLaunchNotice $null)) { throw 'Closing the startup notice again or without one must succeed' }
+    $stuckNotice = [hashtable]::Synchronized(@{ Handle = [pscustomobject]@{ AsyncWaitHandle = [Threading.ManualResetEvent]::new($false) } })
+    if ((Stop-LocalLaunchNotice $stuckNotice) -or (Stop-LocalLaunchNotice $stuckNotice)) { throw 'A notice that did not close must be reported, never hidden or ended here' }
+    # PowerShell's shutdown waits forever for an open window, so the launcher's own final cleanup must end the process.
+    $mainTry = $launcherTree.EndBlock.Statements | Where-Object { $_ -is [Management.Automation.Language.TryStatementAst] } | Select-Object -Last 1
+    $failure = $mainTry.CatchClauses[0].Body.Extent.Text
+    if ($failure.IndexOf('Stop-LocalLaunchNotice $launchNotice') -lt 0 -or $failure.IndexOf('Stop-LocalLaunchNotice $launchNotice') -gt $failure.IndexOf('MessageBox')) {
+        throw 'A failed launch must close the startup notice before its error dialog'
+    }
+    $stuckScript = Join-Path $fixture 'stuck-notice.ps1'
+    $stuckBody = (Get-Command Stop-LocalLaunchNotice).Definition.Insert(0, "function Stop-LocalLaunchNotice {`r`n") + "`r`n}`r`n" +
+        '$launchNotice = [hashtable]::Synchronized(@{ Handle = [pscustomobject]@{ AsyncWaitHandle = [Threading.ManualResetEvent]::new($false) } })' + "`r`n" +
+        '$script:memoryNotice = $null; $script:launchExitCode = 7; $launchMutex = [Threading.Mutex]::new($true)' + "`r`n" +
+        'try { exit 0 } finally ' + $mainTry.Finally.Extent.Text + "`r`n"
+    [IO.File]::WriteAllText($stuckScript, $stuckBody, [Text.UTF8Encoding]::new($true))
+    $stuck = Start-Process -FilePath (Join-Path $PSHOME 'powershell.exe') -ArgumentList ('-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "' + $stuckScript + '"') -WindowStyle Hidden -PassThru
+    if (-not $stuck.WaitForExit(20000)) { $stuck.Kill(); $stuck.WaitForExit(); throw 'A startup notice that cannot close must not leave the launcher hanging' }
+    if ($stuck.ExitCode -ne 7) { throw 'A startup notice that cannot close must keep the launcher exit code' }
+    if ((Wait-LocalClientWindow ([hashtable]::Synchronized(@{ Closed = $true })) $fixture ([DateTime]::Now) 5000) -cne 'CLOSED') { throw 'Closing the notice must end the wait for the client window' }
+    $watch = [Diagnostics.Stopwatch]::StartNew()
+    if ((Wait-LocalClientWindow ([hashtable]::Synchronized(@{ Closed = $false })) $fixture ([DateTime]::Now) 600) -cne 'TIMEOUT' -or $watch.ElapsedMilliseconds -gt 5000) {
+        throw 'Waiting for the client window must be bounded'
+    }
+    $launcherText = [IO.File]::ReadAllText((Join-Path $source 'LaunchLocalLeadYa.ps1'))
+    $gateRelease = $launcherText.IndexOf('$launchMutex.ReleaseMutex()')
+    $windowWait = $launcherText.IndexOf('Wait-LocalClientWindow $launchNotice')
+    if ($gateRelease -lt 0 -or $windowWait -lt 0 -or $gateRelease -gt $windowWait) { throw 'A client update relaunch must not meet the startup gate held only to wait for the window' }
+    if ([IO.File]::Exists($java) -and $compiler) {
+        $frameSource = Join-Path $fixture 'NoticeFrame.java'
+        [IO.File]::WriteAllText($frameSource, 'public class NoticeFrame { public static void main(String[] a) throws Exception { java.awt.Frame f = new java.awt.Frame("[TEST] LeadYa window"); f.setSize(240, 120); f.setVisible(true); Thread.sleep(15000); System.exit(0); } }')
+        $compile = New-Object Diagnostics.Process
+        $compile.StartInfo = New-LocalJavaStartInfo $compiler.Source ('-J-Xms16m -J-Xmx64m "' + $frameSource + '"') $fixture
+        try {
+            [void]$compile.Start()
+            if (-not $compile.WaitForExit(15000) -or $compile.ExitCode -ne 0) { throw 'Real client window fixture did not compile' }
+        } finally { if (-not $compile.HasExited) { $compile.Kill(); $compile.WaitForExit() }; $compile.Dispose() }
+        $since = [DateTime]::Now
+        $frame = New-Object Diagnostics.Process
+        $frame.StartInfo = New-LocalJavaStartInfo (Join-Path (Split-Path $java) 'javaw.exe') ('-Xms16m -Xmx64m -cp "' + $fixture + '" NoticeFrame') $fixture
+        try {
+            [void]$frame.Start()
+            if ((Wait-LocalClientWindow ([hashtable]::Synchronized(@{ Closed = $false })) (Split-Path $java) $since 20000) -cne 'SHOWN') { throw 'A new window of the bundled Java must end the startup notice' }
+            if ((Wait-LocalClientWindow ([hashtable]::Synchronized(@{ Closed = $false })) (Split-Path $java) ([DateTime]::Now.AddMinutes(1)) 800) -cne 'TIMEOUT') { throw 'A window that existed before the click must not end the startup notice' }
+        } finally { if (-not $frame.HasExited) { $frame.Kill(); $frame.WaitForExit() }; $frame.Dispose() }
+        Write-Output 'PASS: real bundled Java window ends the startup notice; older windows do not'
+    } else { Write-Output 'SKIP: pinned JRE and javac required for real client window scenario' }
+    Write-Output 'PASS: startup notice shows a real window, closes, respects NoDialog, bounded wait and released startup gate'
     [IO.Directory]::CreateDirectory($fixture) | Out-Null
     Copy-Item -LiteralPath (Join-Path $source 'LaunchLocalLeadYa.vbs') -Destination $fixture
     [IO.File]::WriteAllText((Join-Path $fixture 'LaunchLocalLeadYa.ps1'), 'param([string]$RequestedVersion); [IO.File]::WriteAllText((Join-Path $PSScriptRoot "result.txt"), ("ok:"+$RequestedVersion))')

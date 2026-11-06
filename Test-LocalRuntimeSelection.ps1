@@ -8,7 +8,10 @@ $resolver = $tree.Find({ param($node) $node -is [Management.Automation.Language.
 if (-not $resolver) { throw 'Runtime resolver unavailable' }
 Invoke-Expression $resolver.Extent.Text
 # These fixtures represent two already-qualified candidates. Native custody is tested separately.
-function Assert-RuntimeAncestors([string]$Path) { if ($script:refused -and $Path -eq $script:refused) { throw 'Fixture custody refusal' } }
+function Assert-RuntimeAncestors([string]$Path) {
+    if ($script:refusedCode) { throw $script:refusedCode }
+    if ($script:refused -and $Path -eq $script:refused) { throw 'Fixture custody refusal' }
+}
 function Assert-Custody([string]$Path, [bool]$Private) { }
 function Assert-LocalMarker([string]$Path) { }
 function Assert-Refused([scriptblock]$Action) {
@@ -20,6 +23,22 @@ $fixture = Join-Path ([IO.Path]::GetTempPath()) ('leadya-runtime-selection-' + [
 try {
     $old = Join-Path $fixture 'old'
     $current = Join-Path $fixture 'current'
+    $preferred = Join-Path $fixture 'preferred'
+    $bound = Join-Path $fixture 'bound'
+    [IO.Directory]::CreateDirectory($preferred) | Out-Null
+    [IO.Directory]::CreateDirectory($bound) | Out-Null
+    if ((Resolve-LocalRuntime @($preferred, $bound)) -cne $preferred) { throw 'Fresh selection order changed' }
+    [IO.File]::WriteAllText((Join-Path $bound 'leadya-local-install.txt'), '[TEST] bound marker')
+    if ((Resolve-LocalRuntime @($preferred, $bound)) -cne $bound) { throw 'Reinstall moved a bound home after another candidate qualified' }
+    $script:refusedCode = 'LOCAL_ANCESTOR_WRITABLE'
+    $refusal = $null
+    try { Resolve-LocalRuntime @($preferred, $bound) | Out-Null } catch { $refusal = [string]$_.Exception.Message }
+    if ($refusal -cne 'LOCAL_NO_PRIVATE_PROFILE_ANCESTOR_WRITABLE') { throw "Support code lost the refusal: $refusal" }
+    $script:refusedCode = 'not a code C:\Users\private'
+    $refusal = $null
+    try { Resolve-LocalRuntime @($preferred, $bound) | Out-Null } catch { $refusal = [string]$_.Exception.Message }
+    if ($refusal -cne 'LOCAL_NO_PRIVATE_PROFILE') { throw "Unfiltered refusal text reached the support code: $refusal" }
+    $script:refusedCode = $null
     [IO.Directory]::CreateDirectory((Join-Path $old 'bot_files')) | Out-Null
     [IO.Directory]::CreateDirectory($current) | Out-Null
     [IO.File]::WriteAllText((Join-Path $old 'bot_files\bot.properties'), '[TEST] retained token')
@@ -37,7 +56,7 @@ try {
     if ((Resolve-LocalRuntime @($old, $current)) -cne $current) { throw 'Interrupted recovery binding lost' }
     [IO.File]::WriteAllText((Join-Path $current 'leadya-profile-recovery-pending.txt'), 'broken')
     Assert-Refused { Resolve-LocalRuntime @($old, $current) }
-    Write-Output 'PASS: retained login, permanent binding after logout/reinstall, pending, conflict, custody refusal'
+    Write-Output 'PASS: retained login, bound home kept on reinstall, support refusal code, permanent binding after logout/reinstall, pending, conflict, custody refusal'
 } finally {
     $resolved = [IO.Path]::GetFullPath($fixture)
     if ([IO.Path]::GetDirectoryName($resolved) -ieq [IO.Path]::GetTempPath().TrimEnd('\') -and

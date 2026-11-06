@@ -214,7 +214,11 @@ Var JreArchivePath
   ${LogLine} "(InstallJRE) Downloading JRE failed"
   ${LogLine} "(InstallJRE) Error: $0"
   DetailPrint "$0" ;print error message to log
+  !ifdef LEADYA_TRUSTED_DOWNLOADS
+    !insertmacro ShowLocalStepFailure "LOCAL_JRE_DOWNLOAD" "JreDownload"
+  !else
   MessageBox MB_OK|MB_ICONEXCLAMATION $(ERROR_somethingWentWrong) /SD IDOK
+  !endif
   Abort
 
   Install:
@@ -232,7 +236,11 @@ Var JreArchivePath
   System::Call 'kernel32::CreateFileW(w "$JreArchivePath", i 0x80000000, i 1, p 0, i 3, i 0, p 0) p .r9'
   StrCpy $JreArchiveHandle $9
   StrCmp $JreArchiveHandle -1 0 JreArchiveLocked
+  !ifdef LEADYA_TRUSTED_DOWNLOADS
+    !insertmacro ShowLocalStepFailure "LOCAL_JRE_ARCHIVE" "JreCreate"
+  !else
   MessageBox MB_OK $(ERROR_somethingWentWrong) /SD IDOK
+  !endif
   Abort
   JreArchiveLocked:
   nsisunz::UnzipToLog "$JreArchivePath" "${LEADYA_SHARED_JRE_PARENT}"
@@ -243,7 +251,11 @@ Var JreArchivePath
     ${LogLine} "(InstallJRE) Unzipping JRE failed"
     ${LogLine} "(InstallJRE) Error: $0"
     DetailPrint "$0" ;print error message to log
+    !ifdef LEADYA_TRUSTED_DOWNLOADS
+      !insertmacro ShowLocalStepFailure "LOCAL_JRE_UNZIP" "JreCreate"
+    !else
     MessageBox MB_OK $(ERROR_somethingWentWrong) /SD IDOK
+    !endif
     Abort
 
   Installed:
@@ -259,7 +271,12 @@ Var JreArchivePath
   Delete "$JreArchivePath"
   Goto Finish
   JreDownloadPreparationFailed:
+  !ifdef LEADYA_TRUSTED_DOWNLOADS
+    ; AllocateLocalDownload left the validator's PackageTemp refusal code for support.
+    Call ShowLocalInstallationFailure
+  !else
   MessageBox MB_OK $(ERROR_somethingWentWrong) /SD IDOK
+  !endif
   Abort
   Finish:
   ${LogLine} "(InstallJRE) Finished"

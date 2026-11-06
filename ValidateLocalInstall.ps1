@@ -49,6 +49,9 @@ try {
     $readonly = [long]([Security.AccessControl.FileSystemRights]::ReadAndExecute) -bor
         [long]([Security.AccessControl.FileSystemRights]::Synchronize) -bor
         [long]([Security.AccessControl.FileSystemRights]::AppendData)
+    # Windows grants an AppContainer package or capability SID (S-1-15-2-*, S-1-15-3-*) only together with
+    # the same access for the process's ordinary user and group SIDs. Such an entry never adds a writer to
+    # shared ancestors beyond the ordinary entries checked here; private homes still refuse it.
 
     function Assert-Custody([string]$Path, [bool]$Private) {
         $item = Get-Item -LiteralPath $Path -Force
@@ -63,7 +66,7 @@ try {
             if ($rule.AccessControlType -ne [Security.AccessControl.AccessControlType]::Allow) { throw 'LOCAL_DENY_ACL' }
             $sid = $rule.IdentityReference.Value
             if ($Private -and $sid -notin $privateOwners) { throw 'LOCAL_PRIVATE_ACL' }
-            if (-not $Private -and $sid -notin $ancestorOwners -and
+            if (-not $Private -and $sid -notin $ancestorOwners -and $sid -notmatch '^S-1-15-[23]-' -and
                 (([long]$rule.FileSystemRights -band (-bnot $readonly)) -ne 0)) { throw 'LOCAL_ANCESTOR_WRITABLE' }
         }
     }
@@ -97,13 +100,21 @@ try {
             return $selected
         }
         $populated = @($Candidates | Where-Object { [IO.File]::Exists((Join-Path $_ 'bot_files\bot.properties')) })
-        foreach ($candidate in @($populated) + @($Candidates | Where-Object { $_ -notin $populated })) {
+        # A bound home stays selected when another candidate later qualifies, so reinstalls keep their home.
+        $bound = @($Candidates | Where-Object { $_ -notin $populated -and [IO.File]::Exists((Join-Path $_ 'leadya-local-install.txt')) })
+        $refusal = $null
+        foreach ($candidate in @($populated) + @($bound) + @($Candidates | Where-Object { $_ -notin $populated -and $_ -notin $bound })) {
             try {
                 Assert-RuntimeAncestors $candidate
                 if ([IO.Directory]::Exists($candidate)) { Assert-Custody $candidate $true }
                 return $candidate
-            } catch { continue }
+            } catch {
+                if ($null -eq $refusal) { $refusal = [string]$_.Exception.Message }
+                continue
+            }
         }
+        # Keep the first concrete refusal for support; it is a fixed code, never a path or ACL content.
+        if ($refusal -cmatch '^LOCAL_([A-Z_]{1,40})$') { throw ('LOCAL_NO_PRIVATE_PROFILE_' + $Matches[1]) }
         throw 'LOCAL_NO_PRIVATE_PROFILE'
     }
     function Assert-PackagePath([string]$Path, [bool]$Ancestor = $false) {
@@ -116,7 +127,8 @@ try {
         foreach ($rule in $acl.GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier])) {
             if ($rule.PropagationFlags -band [Security.AccessControl.PropagationFlags]::InheritOnly) { continue }
             if ($rule.AccessControlType -ne [Security.AccessControl.AccessControlType]::Allow) { throw 'LOCAL_PACKAGE_ACL' }
-            if ($rule.IdentityReference.Value -notin $trustedOwners -and (([long]$rule.FileSystemRights -band (-bnot $allowed)) -ne 0)) {
+            if ($rule.IdentityReference.Value -notin $trustedOwners -and $rule.IdentityReference.Value -notmatch '^S-1-15-[23]-' -and
+                (([long]$rule.FileSystemRights -band (-bnot $allowed)) -ne 0)) {
                 throw 'LOCAL_PACKAGE_WRITABLE'
             }
         }
