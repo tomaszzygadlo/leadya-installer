@@ -81,6 +81,11 @@ Job List attribute, explicit inherited handle list, hidden startup, bounded logs
 timeouts and KILL_ON_JOB_CLOSE. The job owns descendants before execution. Parent
 exit, timeout and log cap terminate only that job. Its cleanup marker requires
 ActiveProcesses zero before the workflow releases its own admission receipt.
+The private entry wrapper matches direct Python script import resolution by adding
+the pinned target script directory to sys.path. Exceptions are recorded before the
+private stream closes. The admission acquire log and its native transport log are
+inside encrypted results, including when admission refuses; the private lease
+receipt stays outside artifacts. Missing application test evidence remains NOT_RUN.
 This follows the Windows [job object documentation](https://learn.microsoft.com/en-us/windows/win32/procthread/job-objects)
 and [process attribute contract](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-updateprocthreadattribute).
 

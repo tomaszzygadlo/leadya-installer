@@ -160,7 +160,7 @@ jobs:
           $env:PSModulePath="$env:SystemRoot/System32/WindowsPowerShell/v1.0/Modules"
           $gate="$env:DEVUNIT_BOOTSTRAP_ROOT/.agents/skills/leadya-project-manager/scripts/host_gate.py"
           $receipt="$env:RUNNER_TEMP/unit-admission-private.json"
-          ./Invoke-PrivateUnitPython.ps1 -Script $gate -ScriptArguments @('acquire','--heavy','--key','private-unit-ci','--checkout',$env:DEVUNIT_BOOTSTRAP_ROOT,'--memory-gib','2','--disk-gib','3','--receipt-out',$receipt) -Log "$env:RUNNER_TEMP/unit-acquire-private.log"
+          ./Invoke-PrivateUnitPython.ps1 -Script $gate -ScriptArguments @('acquire','--heavy','--key','private-unit-ci','--checkout',$env:DEVUNIT_BOOTSTRAP_ROOT,'--memory-gib','2','--disk-gib','3','--receipt-out',$receipt) -Log "$env:DEVUNIT_RESULT_ROOT/admission-acquire.log"
           if($LASTEXITCODE -ne 0){throw 'Canonical heavy admission refused'}
           $a=(Get-Content -LiteralPath $receipt -Raw | ConvertFrom-Json).admission
           ./Invoke-PrivateUnitPython.ps1 -Script $gate -ScriptArguments @('check','--key',$a.key,'--token',$a.token,'--checkout',$env:DEVUNIT_BOOTSTRAP_ROOT,'--heavy','--memory-gib','2','--disk-gib','3') -Log "$env:DEVUNIT_RESULT_ROOT/admission-check.json"

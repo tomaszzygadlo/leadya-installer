@@ -181,6 +181,8 @@ class ProtocolTests(unittest.TestCase):
         self.assertIn('/result.cipher', artifact)
         self.assertIn('/result-envelope.json', artifact)
         self.assertIn("'--memory-gib','2','--disk-gib','3'", workflow)
+        self.assertIn('-Log "$env:DEVUNIT_RESULT_ROOT/admission-acquire.log"', workflow)
+        self.assertNotIn('-Log "$env:RUNNER_TEMP/unit-acquire-private.log"', workflow)
 
     @unittest.skipUnless(os.name == 'nt', 'Windows command transport')
     def test_real_inner_cmd_preserves_spaces_and_exit_code(self):

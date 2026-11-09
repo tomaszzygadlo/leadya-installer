@@ -5,6 +5,7 @@ from pathlib import Path
 import runpy
 import subprocess
 import sys
+import traceback
 
 if __name__ == '__main__':
     request = json.loads(Path(sys.argv[1]).read_text(encoding='utf-8-sig'))
@@ -19,7 +20,22 @@ if __name__ == '__main__':
             super().__init__(args, *positional, **keywords)
 
     subprocess.Popen = HiddenProcess
+    exit_code = 0
     with Path(request['log']).open('x', encoding='utf-8') as private:
-        sys.stdout = sys.stderr = private
-        sys.argv = [request['script'], *request['arguments']]
-        runpy.run_path(request['script'], run_name='__main__')
+        previous_stdout, previous_stderr = sys.stdout, sys.stderr
+        try:
+            sys.stdout = sys.stderr = private
+            sys.argv = [request['script'], *request['arguments']]
+            # Match direct script execution, including the canonical gate's sibling imports.
+            sys.path.insert(0, str(Path(request['script']).resolve().parent))
+            runpy.run_path(request['script'], run_name='__main__')
+        except SystemExit as stopped:
+            exit_code = stopped.code if isinstance(stopped.code, int) else 0 if stopped.code is None else 1
+            if stopped.code is not None and not isinstance(stopped.code, int):
+                print(str(stopped.code), file=private)
+        except BaseException:
+            traceback.print_exc(file=private)
+            exit_code = 1
+        finally:
+            sys.stdout, sys.stderr = previous_stdout, previous_stderr
+    raise SystemExit(exit_code)
