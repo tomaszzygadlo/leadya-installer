@@ -90,6 +90,35 @@ class ProtocolTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'BAD_INVENTORY'):
             p.merkle(inventory * 5)
 
+    def test_checking_program_is_compile_only_and_cannot_select_its_tests(self):
+        _, _, plan, _, _ = self.fixture()
+        plan['compile_modules'].append('CheckingProgram')
+        self.assertIn('CheckingProgram', p.spec(plan)['compile_modules'])
+        bad = copy.deepcopy(plan)
+        bad['red']['module'] = 'CheckingProgram'
+        with self.assertRaisesRegex(ValueError, 'BAD_RED_SPEC'):
+            p.spec(bad)
+        bad = copy.deepcopy(plan)
+        bad['green'].append({'module': 'CheckingProgram', 'tests': ['sample.Checking']})
+        with self.assertRaisesRegex(ValueError, 'BAD_GREEN_MODULE'):
+            p.spec(bad)
+
+    def test_node_scope_is_bounded_at_128_files(self):
+        _, _, plan, _, _ = self.fixture()
+        plan['node'] = ['tests/guard-' + str(i) + '.test.cjs' for i in range(128)]
+        self.assertEqual(128, len(p.spec(plan)['node']))
+        plan['node'].append('tests/one-too-many.test.cjs')
+        with self.assertRaisesRegex(ValueError, 'BAD_NODE_SPEC'):
+            p.spec(plan)
+
+    def test_only_named_n8n_workflow_suite_may_lack_a_test_directory(self):
+        _, _, plan, _, _ = self.fixture()
+        plan['node'] = ['docker/n8n/workflows/leadya-chat-rag-code.test.cjs']
+        self.assertEqual(plan, p.spec(plan))
+        plan['node'] = ['docker/n8n/workflows/another.test.cjs']
+        with self.assertRaisesRegex(ValueError, 'BAD_NODE_PATH'):
+            p.spec(plan)
+
     def test_path_traversal_windows_aliases_and_private_paths(self):
         for name in ('../bad', '/bad', 'a/../b', 'a\\b', 'a:b', 'x/NUL.txt', 'x/CON', 'x/a.', '.git/config', 'a/settings.xml', 'a/target/evil'):
             with self.subTest(name=name), self.assertRaises(ValueError):
@@ -166,6 +195,16 @@ class ProtocolTests(unittest.TestCase):
         self.assertIn('received-spaced-argument', log.read_text())
         with self.assertRaisesRegex(ValueError, 'CMD_META_REFUSED'):
             cmd_line([str(command), 'safe & unsafe'])
+
+    @unittest.skipUnless(os.name == 'nt', 'Windows Maven command transport')
+    def test_every_maven_command_disables_only_deployment_copy_antrun(self):
+        from run_private_units import cmd_line, execute, maven_command
+        directory = self.root / 'fake maven path'
+        directory.mkdir()
+        command = directory / 'mvn.cmd'
+        command.write_bytes(b'@echo off\r\nif not "%~4"=="-Dmaven.antrun.skip=true" exit /b 19\r\nif not "%~6"=="install" exit /b 20\r\nexit /b 7\r\n')
+        code = execute(cmd_line(maven_command(str(command), directory / 'm2', ['install'])), directory, self.root / 'mvn.log', 10)
+        self.assertEqual(7, code)
 
 
 if __name__ == '__main__':

@@ -18,6 +18,7 @@ MAX_INVENTORY = 50000
 MAX_CONTROL = 32 * 1024 * 1024
 MODULES = {"BaseModule", "SpringAppBase", "SpringAppBackend", "SpringAppFrontend",
            "FacebookBot", "InstagramBot", "TelegramBot", "task_parameters", "UnixClient"}
+COMPILE_MODULES = MODULES | {"CheckingProgram"}
 VENDORS = ("SeleniumModule", "CaptchaSolverModule")
 SHA1 = re.compile(r"[0-9a-f]{40}")
 SHA256 = re.compile(r"[0-9a-f]{64}")
@@ -131,9 +132,9 @@ def load_json(path):
 def spec(data):
     need(set(data) == {"format", "compile_modules", "red", "green", "node", "green_patch_sha256"}
          and data["format"] == "leadya-private-unit-spec/v1", "BAD_UNIT_SPEC")
-    need(isinstance(data["compile_modules"], list) and 0 < len(data["compile_modules"]) <= len(MODULES)
+    need(isinstance(data["compile_modules"], list) and 0 < len(data["compile_modules"]) <= len(COMPILE_MODULES)
          and len(set(data["compile_modules"])) == len(data["compile_modules"])
-         and set(data["compile_modules"]) <= MODULES, "BAD_COMPILE_MODULES")
+         and set(data["compile_modules"]) <= COMPILE_MODULES, "BAD_COMPILE_MODULES")
     red = data["red"]
     need(set(red) == {"module", "class", "method", "failure_contains"}
          and red["module"] in MODULES and CLASS.fullmatch(red["class"])
@@ -150,10 +151,12 @@ def spec(data):
         seen.add(suite["module"])
     need(red["module"] in data["compile_modules"] and any(s["module"] == red["module"] and red["class"] in s["tests"]
          for s in data["green"]), "RED_NOT_COVERED_BY_GREEN")
-    need(isinstance(data["node"], list) and 0 < len(data["node"]) <= 8, "BAD_NODE_SPEC")
+    need(isinstance(data["node"], list) and 0 < len(data["node"]) <= 128, "BAD_NODE_SPEC")
     for name in data["node"]:
         p = relative(name)
-        need(re.search(r"(?:^|/)test(?:s)?/", name) and p.name.endswith((".test.js", ".test.cjs", ".test.mjs")), "BAD_NODE_PATH")
+        need((re.search(r"(?:^|/)test(?:s)?/", name)
+              or name == 'docker/n8n/workflows/leadya-chat-rag-code.test.cjs')
+             and p.name.endswith((".test.js", ".test.cjs", ".test.mjs")), "BAD_NODE_PATH")
     need(len(set(data["node"])) == len(data["node"]) and SHA256.fullmatch(data["green_patch_sha256"]), "BAD_PATCH_DIGEST")
     return data
 

@@ -56,6 +56,10 @@ private Git metadata and generated dependency/build directories are refused.
 Only the module allowlist in `private_unit_ci.py` is executable. Vendor source POMs
 SeleniumModule and CaptchaSolverModule are installed first, then the module closure
 is clean-compiled and installed with tests skipped for this compilation step.
+Every Maven invocation sets `-Dmaven.antrun.skip=true`: the source POMs bind
+deployment JAR copies outside `target` to install. This unit-only property leaves
+the application POMs unchanged and keeps the strict source manifest intact. The
+property is supported by the POMs' [AntRun3.0.0 plugin](https://maven.apache.org/components/plugins-archives/maven-antrun-plugin-3.0.0/run-mojo.html).
 
 The selected RED method runs separately. It must produce exactly one assertion
 failure with the named class/method and expected text, no error or skip. Compilation

@@ -18,6 +18,12 @@ def cmd_line(command):
     return '"' + executable + '" /d /s /c ' + body
 
 
+def maven_command(maven, repository, arguments):
+    # Unit evidence installs dependency JARs into M2, never the POM's deployment-copy Ant targets.
+    return [maven, '-B', '-ntp', '-Dstyle.color=never', '-Dmaven.antrun.skip=true',
+            '-Dmaven.repo.local=' + str(repository), *arguments]
+
+
 def execute(arguments, cwd, log, timeout=1200):
     # This process and all descendants already belong atomically to the outer native job.
     with log.open('xb') as output:
@@ -58,7 +64,7 @@ def main():
         nonlocal counter
         counter += 1
         # cmd's syntax is closed: every component is validated and no shell expansion is accepted.
-        command = [maven, '-B', '-ntp', '-Dstyle.color=never', '-Dmaven.repo.local=' + str(source.parent / 'm2'), *args]
+        command = maven_command(maven, source.parent / 'm2', args)
         log = result / f'{counter:02d}-{label}.log'
         code = execute(cmd_line(command), source, log)
         if expect_success:
