@@ -100,7 +100,7 @@ def run(args):
         driver.add_cookie({"name": cfg["session_cookie"]["name"], "value": cfg["session_cookie"]["value"],
                            "path": "/", "secure": True, "httpOnly": True, "sameSite": "Lax"})
         page("/user", "user")
-        check(driver.find_element(By.ID, "test-userId").get_attribute("value") == "4", "fixture_owner")
+        check(driver.find_element(By.ID, "currentUserId").get_attribute("value") == "4", "fixture_owner")
 
         # These GET views select fixture 242 in the dedicated disposable session.
         for path, name in (("/facebookMainPage?campaign=242", "campaign"),

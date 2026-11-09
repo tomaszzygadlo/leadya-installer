@@ -73,7 +73,7 @@ def run(args):
         cookie = data['queue_session_cookie']
         driver.add_cookie(dict(name=cookie['name'], value=cookie['value'], path='/', secure=True, httpOnly=True, sameSite='Lax'))
         page('/user')
-        check(driver.find_element(By.ID, 'test-userId').get_attribute('value') == '4', 'queue_session_owner')
+        check(driver.find_element(By.ID, 'currentUserId').get_attribute('value') == '4', 'queue_session_owner')
         page('/facebookTasksQueue?campaign=' + str(data['queue_campaign_id']))
         check(len(driver.find_elements(By.CSS_SELECTOR, '#recurring_tasks_queue ~ #scheduled_tasks_queue')) == 1, 'recurring_before_scheduled')
         rows = wait.until(lambda d: d.find_elements(By.CSS_SELECTOR, '#recurring_tasks_queue table tbody > tr'))
