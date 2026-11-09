@@ -206,15 +206,17 @@ function Stop-LocalLaunchNotice($Notice) {
     return [bool]$Notice.Released
 }
 
-function Wait-LocalClientWindow($Notice, [string]$JavaDirectory, [DateTime]$Since, [int]$Milliseconds) {
+function Wait-LocalClientWindow($Notice, [string]$JavaDirectory, [DateTime]$Since, [int]$Milliseconds, [string]$RuntimeDirectory) {
     # Only a window of a bundled-Java process started after this click counts; older LeadYa windows do not.
     $deadline = [DateTime]::UtcNow.AddMilliseconds($Milliseconds)
     while ([DateTime]::UtcNow -lt $deadline) {
         if ($Notice.Closed) { return 'CLOSED' }
-        foreach ($process in @(Get-Process -Name java, javaw -ErrorAction SilentlyContinue)) {
+        foreach ($process in @(Get-Process -Name java, javaw, LeadYa -ErrorAction SilentlyContinue)) {
             try {
                 if ($process.MainWindowHandle -ne [IntPtr]::Zero -and $process.StartTime -ge $Since -and
-                    [IO.Path]::GetDirectoryName($process.Path) -ieq $JavaDirectory) { return 'SHOWN' }
+                    ([IO.Path]::GetDirectoryName($process.Path) -ieq $JavaDirectory -or
+                     ($RuntimeDirectory -and $process.ProcessName -ieq 'LeadYa' -and
+                      $process.Path.StartsWith((Join-Path $RuntimeDirectory '.leadya-native') + '\', [StringComparison]::OrdinalIgnoreCase)))) { return 'SHOWN' }
             } catch { } finally { $process.Dispose() }
         }
         Start-Sleep -Milliseconds 250
@@ -360,12 +362,19 @@ try {
     # Startup folder is the single autostart registration; retire our duplicate legacy Run value.
     if ($startupSaved) { Remove-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'Leadya Checking Program' -ErrorAction SilentlyContinue }
     $env:LEADYA_HOME = $runtime
+    $prepareJava = Join-Path (Split-Path $java) 'java.exe'
+    $branded = & $prepareJava -Xms16m -Xmx64m -XX:-UsePerfData ("-Dleadya.local.home=" + $runtime) -cp $jar pl.softwizard.sellbot.base.runtime.NativeLauncherSupport prepare-checking-base64 $jar $runtime
+    if ($LASTEXITCODE -ne 0) { throw 'LOCAL_NATIVE_LAUNCHER' }
+    $branded = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String(([string]($branded -join "`n")).Trim()))
+    if (-not [IO.Path]::IsPathRooted($branded) -or -not [IO.File]::Exists($branded) -or
+        -not $branded.StartsWith((Join-Path $runtime '.leadya-native') + '\', [StringComparison]::OrdinalIgnoreCase)) { throw 'LOCAL_NATIVE_LAUNCHER' }
     $start = New-Object Diagnostics.ProcessStartInfo
-    $start.FileName = $java
+    $start.FileName = $branded
     $start.WorkingDirectory = $runtime
     $start.UseShellExecute = $false
     $start.CreateNoWindow = $true
-    $start.Arguments = '"-Dleadya.local.home=' + $runtime + '" -jar "' + $jar + '" --exclusive-start'
+    $start.EnvironmentVariables['PATH'] = (Join-Path (Split-Path $branded) 'app') + ';' + $env:PATH
+    $start.Arguments = '--exclusive-start'
     $bootstrap = Invoke-LocalLaunchPreparation -Phase BOOTSTRAP -SessionAlive { Test-LocalLaunchOwner $launchOwner } -Attempt {
         Invoke-LocalLaunchBootstrap $start
     }
@@ -376,7 +385,7 @@ try {
     $launchMutex = $null
     if ($launchNotice -and $bootstrap.State -ceq 'START_REQUESTED') {
         try {
-            $window = Wait-LocalClientWindow $launchNotice (Split-Path $java) $launchStarted 120000
+            $window = Wait-LocalClientWindow $launchNotice (Split-Path $java) $launchStarted 120000 $runtime
             Write-LocalLaunchEvent ('WINDOW_' + $window) $(if ($window -ceq 'TIMEOUT') { 'LOCAL_WINDOW_TIMEOUT' } else { 'LOCAL_VALID' })
         } catch { Write-Warning 'LeadYa window wait is unavailable' }
     }
