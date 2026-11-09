@@ -55,7 +55,7 @@ jobs:
           foreach($name in $paths.Keys){"$name=$($paths[$name])" | Out-File $env:GITHUB_ENV -Append -Encoding utf8}
           New-Item -ItemType Directory -Path $paths.DEVUNIT_RESULT_ROOT | Out-Null
           @{status='PREPARATION_PENDING';runtime_tests='NOT_RUN'} | ConvertTo-Json | Set-Content "$($paths.DEVUNIT_RESULT_ROOT)/unit-status.json"
-          @{workflow_commit=$env:GITHUB_SHA;run_id=$env:GITHUB_RUN_ID;red_tree=$env:DEVUNIT_RED_TREE;prospective_green_tree=$env:DEVUNIT_GREEN_TREE;source_zip_sha256=$env:DEVUNIT_ZIP_SHA256;runner_os=$env:RUNNER_OS;runner_arch=$env:RUNNER_ARCH} | ConvertTo-Json | Set-Content "$($paths.DEVUNIT_RESULT_ROOT)/identity.json"
+          @{workflow_commit=$env:GITHUB_SHA;run_id=$env:GITHUB_RUN_ID;run_attempt=$env:GITHUB_RUN_ATTEMPT;red_tree=$env:DEVUNIT_RED_TREE;prospective_green_tree=$env:DEVUNIT_GREEN_TREE;source_zip_sha256=$env:DEVUNIT_ZIP_SHA256;runner_os=$env:RUNNER_OS;runner_arch=$env:RUNNER_ARCH} | ConvertTo-Json | Set-Content "$($paths.DEVUNIT_RESULT_ROOT)/identity.json"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: '${{ inputs.input_ref }}'
