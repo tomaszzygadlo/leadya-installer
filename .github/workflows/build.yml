@@ -1,100 +1,218 @@
 name: Unsigned Windows installer build
-
+run-name: Private release build 74CA3BE54D74
 on:
-  push:
-    branches: [main]
-  pull_request:
   workflow_dispatch:
-
 permissions:
   contents: read
-
 jobs:
   build:
-    # This image keeps Defender enabled; the Server image disables it for performance.
-    # Assessment still refuses any remaining exceptions or unsupported scanner policy.
     runs-on: windows-11-arm
     timeout-minutes: 15
+    env:
+      GIT_NO_LAZY_FETCH: '1'
+      GIT_TERMINAL_PROMPT: '0'
+      LEADYA_SOURCE_COMMIT: '709c62ba7c1dc27588b1608ef1fc3fed5ec2c232'
+      LEADYA_SOURCE_TREE: '55e52f37023f971a89ae32fb876a369fe379da15'
+      LEADYA_ARCHIVE_SHA256: '1e7b512be3f640563cd3a08854793dfa01da3f5213ad13cef6bc6c665e51d0c9'
+      LEADYA_RESULT_ROOT: '${{ runner.temp }}/leadya-private-result'
+      LEADYA_SOURCE_ROOT: '${{ runner.temp }}/leadya-private-input/source'
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
+          ref: '${{ github.sha }}'
           persist-credentials: false
-      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          distribution: temurin
-          java-version: '17'
-          architecture: x64
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+          ref: ea2bef56e1dd727a9f4ec49a74276f47ccfb632d
+          path: foundation
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version: '3.12'
-      - name: Check dependency and assessment workflow boundaries
-        run: python -m unittest -v test_ci_bootstrap test_assessment_workflow
-      - name: Prepare pinned official compiler and plugins
-        run: python ci_bootstrap.py --output "$env:RUNNER_TEMP\leadya-nsis" --seven-zip "C:\Program Files\7-Zip\7z.exe"
-      - name: Build and test through Maven
+      - name: Initialize private evidence directory
         shell: pwsh
         run: |
-          $sdk = Get-Content "$env:RUNNER_TEMP\leadya-nsis\ci-sdk.json" -Raw | ConvertFrom-Json
-          mvn -B --no-transfer-progress clean verify "-Dinstaller.python=python" "-Dinstaller.compiler=$($sdk.compiler)" "-Dinstaller.plugins=$($sdk.plugins)"
-      - name: Record unsigned artifact provenance
+          $ErrorActionPreference='Stop'
+          New-Item -ItemType Directory -Path $env:LEADYA_RESULT_ROOT | Out-Null
+          @{workflow_commit=$env:GITHUB_SHA;run_url="$env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID";source_commit=$env:LEADYA_SOURCE_COMMIT;runner_os=$env:RUNNER_OS;runner_arch=$env:RUNNER_ARCH} | ConvertTo-Json | Set-Content "$env:LEADYA_RESULT_ROOT/identity.json"
+          @{status='PREPARATION_PENDING';publication_ready=$false} | ConvertTo-Json | Set-Content "$env:LEADYA_RESULT_ROOT/build-status.json"
+      - name: Materialize frozen offline Git source
+        shell: pwsh
+        env:
+          LEADYA_SOURCE_000: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P000 }}
+          LEADYA_SOURCE_001: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P001 }}
+          LEADYA_SOURCE_002: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P002 }}
+          LEADYA_SOURCE_003: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P003 }}
+          LEADYA_SOURCE_004: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P004 }}
+          LEADYA_SOURCE_005: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P005 }}
+          LEADYA_SOURCE_006: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P006 }}
+          LEADYA_SOURCE_007: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P007 }}
+          LEADYA_SOURCE_008: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P008 }}
+          LEADYA_SOURCE_009: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P009 }}
+          LEADYA_SOURCE_010: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P010 }}
+          LEADYA_SOURCE_011: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P011 }}
+          LEADYA_SOURCE_012: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P012 }}
+          LEADYA_SOURCE_013: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P013 }}
+          LEADYA_SOURCE_014: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P014 }}
+          LEADYA_SOURCE_015: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P015 }}
+          LEADYA_SOURCE_016: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P016 }}
+          LEADYA_SOURCE_017: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P017 }}
+          LEADYA_SOURCE_018: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P018 }}
+          LEADYA_SOURCE_019: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P019 }}
+          LEADYA_SOURCE_020: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P020 }}
+          LEADYA_SOURCE_021: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P021 }}
+          LEADYA_SOURCE_022: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P022 }}
+          LEADYA_SOURCE_023: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P023 }}
+          LEADYA_SOURCE_024: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P024 }}
+          LEADYA_SOURCE_025: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P025 }}
+          LEADYA_SOURCE_026: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P026 }}
+          LEADYA_SOURCE_027: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P027 }}
+          LEADYA_SOURCE_028: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P028 }}
+          LEADYA_SOURCE_029: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P029 }}
+          LEADYA_SOURCE_030: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P030 }}
+          LEADYA_SOURCE_031: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P031 }}
+          LEADYA_SOURCE_032: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P032 }}
+          LEADYA_SOURCE_033: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P033 }}
+          LEADYA_SOURCE_034: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P034 }}
+          LEADYA_SOURCE_035: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P035 }}
+          LEADYA_SOURCE_036: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P036 }}
+          LEADYA_SOURCE_037: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P037 }}
+          LEADYA_SOURCE_038: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P038 }}
+          LEADYA_SOURCE_039: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P039 }}
+          LEADYA_SOURCE_040: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P040 }}
+          LEADYA_SOURCE_041: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P041 }}
+          LEADYA_SOURCE_042: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P042 }}
+          LEADYA_SOURCE_043: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P043 }}
+          LEADYA_SOURCE_044: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P044 }}
+          LEADYA_SOURCE_045: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P045 }}
+          LEADYA_SOURCE_046: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P046 }}
+          LEADYA_SOURCE_047: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P047 }}
+          LEADYA_SOURCE_048: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P048 }}
+          LEADYA_SOURCE_049: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P049 }}
+          LEADYA_SOURCE_050: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P050 }}
+          LEADYA_SOURCE_051: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P051 }}
+          LEADYA_SOURCE_052: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P052 }}
+          LEADYA_SOURCE_053: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P053 }}
+          LEADYA_SOURCE_054: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P054 }}
+          LEADYA_SOURCE_055: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P055 }}
+          LEADYA_SOURCE_056: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P056 }}
+          LEADYA_SOURCE_057: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P057 }}
+          LEADYA_SOURCE_058: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P058 }}
+          LEADYA_SOURCE_059: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P059 }}
+          LEADYA_SOURCE_060: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P060 }}
+          LEADYA_SOURCE_061: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P061 }}
+          LEADYA_SOURCE_062: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P062 }}
+          LEADYA_SOURCE_063: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P063 }}
+          LEADYA_SOURCE_064: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P064 }}
+          LEADYA_SOURCE_065: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P065 }}
+          LEADYA_SOURCE_066: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P066 }}
+          LEADYA_SOURCE_067: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P067 }}
+          LEADYA_SOURCE_068: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P068 }}
+          LEADYA_SOURCE_069: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P069 }}
+          LEADYA_SOURCE_070: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P070 }}
+          LEADYA_SOURCE_071: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P071 }}
+          LEADYA_SOURCE_072: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P072 }}
+          LEADYA_SOURCE_073: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P073 }}
+          LEADYA_SOURCE_074: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P074 }}
+          LEADYA_SOURCE_075: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P075 }}
+          LEADYA_SOURCE_076: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P076 }}
+          LEADYA_SOURCE_077: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P077 }}
+          LEADYA_SOURCE_078: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P078 }}
+          LEADYA_SOURCE_079: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P079 }}
+          LEADYA_SOURCE_080: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P080 }}
+          LEADYA_SOURCE_081: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P081 }}
+          LEADYA_SOURCE_082: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P082 }}
+          LEADYA_SOURCE_083: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P083 }}
+          LEADYA_SOURCE_084: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P084 }}
+          LEADYA_SOURCE_085: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P085 }}
+          LEADYA_SOURCE_086: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P086 }}
+          LEADYA_SOURCE_087: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P087 }}
+          LEADYA_SOURCE_088: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_P088 }}
+        run: |
+          $ErrorActionPreference='Stop'
+          python release_source_ci.py materialize --parts 89 --archive-sha256 $env:LEADYA_ARCHIVE_SHA256 --commit $env:LEADYA_SOURCE_COMMIT --tree $env:LEADYA_SOURCE_TREE --destination "$env:RUNNER_TEMP/leadya-private-input"
+          if($LASTEXITCODE -ne 0){throw 'Private source validation failed'}
+          Copy-Item "$env:RUNNER_TEMP/leadya-private-input/input-provenance.json" "$env:LEADYA_RESULT_ROOT/input-provenance.json"
+      - name: Acquire and check real runner heavy admission
         shell: pwsh
         run: |
-          $file = Get-Item target/LeadyaInstaller.exe
-          $signature = Get-AuthenticodeSignature -LiteralPath $file.FullName
-          $build = Get-Content target/LeadyaInstaller.build.json -Raw | ConvertFrom-Json
-          $hash = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-          if ($signature.Status.ToString() -ne 'NotSigned' -or $build.publication_ready -ne $false -or $build.artifact_sha256 -ne $hash) {
-            throw 'Unexpected signature or build-manifest mismatch'
-          }
-          @{
-            source_commit = $env:GITHUB_SHA
-            run_url = "$env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID"
-            artifact_sha256 = $hash
-            artifact_bytes = $file.Length
-            authenticode_status = $signature.Status.ToString()
-            publication_ready = $false
-            signpath_configured = $false
-          } | ConvertTo-Json | Set-Content target/ci-provenance.json -Encoding utf8
-          "$hash  LeadyaInstaller.exe" | Set-Content target/SHA256SUMS.txt -Encoding ascii
-          Copy-Item "$env:RUNNER_TEMP\leadya-nsis\ci-sdk.json" target/ci-sdk.json
-          'Unsigned assessment build. SignPath enrollment and release signing are not configured.' >> $env:GITHUB_STEP_SUMMARY
-          '[Code signing policy](https://github.com/tomaszzygadlo/leadya-installer/blob/main/CODE_SIGNING_POLICY.md)' >> $env:GITHUB_STEP_SUMMARY
-      - name: Assess final installer bytes with Microsoft Defender
-        shell: powershell
+          $ErrorActionPreference='Stop'
+          $env:PSModulePath="$env:SystemRoot/System32/WindowsPowerShell/v1.0/Modules"
+          @('LEADYA_MAIN_BRANCH=hotfix/0.12.3','LEADYA_WORK_ENVIRONMENT=hotfix','LEADYA_DEV_BRANCH=dev/0.12.1') | Set-Content "$env:LEADYA_SOURCE_ROOT/.env" -Encoding utf8
+          $gate="$env:LEADYA_SOURCE_ROOT/.agents/skills/leadya-project-manager/scripts/host_gate.py"
+          $receipt="$env:RUNNER_TEMP/leadya-ci-admission-private.json"
+          python $gate acquire --heavy --key release-74CA3BE54D74 --checkout $env:LEADYA_SOURCE_ROOT --memory-gib 1 --disk-gib 1 --receipt-out $receipt *> "$env:RUNNER_TEMP/admission-output-private.txt"
+          if($LASTEXITCODE -ne 0){throw 'Canonical heavy admission refused'}
+          $a=(Get-Content -LiteralPath $receipt -Raw | ConvertFrom-Json).admission
+          python $gate check --key $a.key --token $a.token --checkout $env:LEADYA_SOURCE_ROOT --heavy --memory-gib 1 --disk-gib 1 > "$env:LEADYA_RESULT_ROOT/admission-check.json"
+          if($LASTEXITCODE -ne 0){throw 'Canonical heavy check refused'}
+      - name: Verify transport and unchanged public bootstrap boundaries
+        shell: pwsh
         run: |
-          $ErrorActionPreference = 'Stop'
-          $env:PSModulePath = Join-Path $PSHOME 'Modules'
-          . .\InstallerReleaseSecurity.ps1
+          $ErrorActionPreference='Stop'
+          python -m unittest -v test_release_source_ci *> "$env:LEADYA_RESULT_ROOT/unit-tests.log"
+          if($LASTEXITCODE -ne 0){throw 'Transport tests failed'}
+          Push-Location foundation
           try {
-            # Hosted images can retain stale definitions; update signatures without changing policy.
-            Update-MpSignature -ErrorAction Stop
-            $evidence = Get-InstallerReleaseSecurityEvidence -Path target/LeadyaInstaller.exe -AssessmentOnly
-            $build = Get-Content target/LeadyaInstaller.build.json -Raw | ConvertFrom-Json
-            if ($evidence.publication_ready -ne $false -or $evidence.artifact_sha256 -ne $build.artifact_sha256) {
-              throw 'Assessment artifact identity or publication policy mismatch'
-            }
-            $evidence | ConvertTo-Json -Depth 8 | Set-Content target/defender-assessment.json -Encoding utf8
-            'Defender assessment completed for the recorded SHA256; package remains unsigned, publication_ready=false.' >> $env:GITHUB_STEP_SUMMARY
-          } catch {
-            @{ status = 'NOT_PASSED'; reason = $_.Exception.Message; publication_ready = $false } |
-              ConvertTo-Json | Set-Content target/defender-assessment.json -Encoding utf8
-            'Defender assessment NOT_PASSED. No protection settings were changed and no AV clearance is asserted.' >> $env:GITHUB_STEP_SUMMARY
-            throw
+            python -m unittest -v test_ci_bootstrap test_assessment_workflow *>> "$env:LEADYA_RESULT_ROOT/unit-tests.log"
+            if($LASTEXITCODE -ne 0){throw 'Pinned bootstrap boundary tests failed'}
+          } finally {Pop-Location}
+          python "$env:LEADYA_SOURCE_ROOT/ExternalInstaller/opensource/build.py" --source-directory "$env:LEADYA_SOURCE_ROOT/ExternalInstaller" --verify-snapshot "$env:LEADYA_SOURCE_ROOT/ExternalInstaller/opensource/source-lock.json" *> "$env:LEADYA_RESULT_ROOT/source-verification.log"
+          if($LASTEXITCODE -ne 0){throw 'Private/public source snapshot differs'}
+      - name: Prepare pinned official NSIS compiler and plugins
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python foundation/ci_bootstrap.py --output "$env:RUNNER_TEMP/leadya-nsis" --seven-zip 'C:/Program Files/7-Zip/7z.exe' *> "$env:LEADYA_RESULT_ROOT/bootstrap.log"
+          if($LASTEXITCODE -ne 0){throw 'Pinned toolchain bootstrap failed'}
+          Copy-Item "$env:RUNNER_TEMP/leadya-nsis/ci-sdk.json" "$env:LEADYA_RESULT_ROOT/ci-sdk.json"
+      - name: Build final private release installer variants
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $sdk=Get-Content "$env:RUNNER_TEMP/leadya-nsis/ci-sdk.json" -Raw | ConvertFrom-Json
+          $env:PATH=(Split-Path -Parent $sdk.compiler)+';'+$env:PATH
+          $env:PY_PYTHON3='3.12'
+          $env:PSModulePath="$env:SystemRoot/System32/WindowsPowerShell/v1.0/Modules"
+          Push-Location "$env:LEADYA_SOURCE_ROOT/ExternalInstaller"
+          try {
+            & "$env:SystemRoot/System32/WindowsPowerShell/v1.0/powershell.exe" -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File ./BuildInstallers.ps1 *> "$env:LEADYA_RESULT_ROOT/build.log"
+            if($LASTEXITCODE -ne 0){throw 'Final NSIS producer failed'}
+          } finally {Pop-Location}
+          python release_source_ci.py collect --source $env:LEADYA_SOURCE_ROOT --result $env:LEADYA_RESULT_ROOT --commit $env:LEADYA_SOURCE_COMMIT
+          if($LASTEXITCODE -ne 0){throw 'Final asset provenance verification failed'}
+          $signatures=@(Get-ChildItem "$env:LEADYA_RESULT_ROOT/installers/*.exe" | ForEach-Object {
+            $signature=Get-AuthenticodeSignature -LiteralPath $_.FullName
+            if($signature.Status.ToString() -ne 'NotSigned'){throw 'Unexpected signing identity/status'}
+            @{filename=$_.Name;status=$signature.Status.ToString();sha256=(Get-FileHash -LiteralPath $_.FullName).Hash.ToLowerInvariant()}
+          })
+          $signatures | ConvertTo-Json | Set-Content "$env:LEADYA_RESULT_ROOT/authenticode.json"
+          @{status='BUILT_UNSIGNED_AV_PENDING';publication_ready=$false;source_commit=$env:LEADYA_SOURCE_COMMIT} | ConvertTo-Json | Set-Content "$env:LEADYA_RESULT_ROOT/build-status.json"
+      - name: Release only this runner admission
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $env:PSModulePath="$env:SystemRoot/System32/WindowsPowerShell/v1.0/Modules"
+          $receipt="$env:RUNNER_TEMP/leadya-ci-admission-private.json"
+          if(Test-Path -LiteralPath $receipt){
+            python "$env:LEADYA_SOURCE_ROOT/.agents/skills/leadya-project-manager/scripts/host_gate.py" release --receipt-file $receipt > "$env:LEADYA_RESULT_ROOT/release.json"
+            if($LASTEXITCODE -ne 0){throw 'Own admission release failed'}
           }
-      - name: Preserve assessment evidence after success or refusal
-        if: ${{ always() && hashFiles('target/defender-assessment.json') != '' }}
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+      - name: Encrypt result before any artifact upload
+        if: always()
+        shell: pwsh
+        env:
+          LEADYA_RESULT_KEY: ${{ secrets.LEADYA_RELEASE_74CA3BE54D74_RESULT_KEY }}
+        run: |
+          ./seal_release_result.ps1 -ResultDirectory $env:LEADYA_RESULT_ROOT -OutputDirectory "$env:RUNNER_TEMP/leadya-private-sealed"
+      - name: Preserve only encrypted result and authenticated envelope
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
-          name: leadya-installer-assessment-${{ github.sha }}
+          name: leadya-private-build-74CA3BE54D74
           path: |
-            target/defender-assessment.json
-            target/ci-provenance.json
-            target/SHA256SUMS.txt
+            ${{ runner.temp }}/leadya-private-sealed/result.cipher
+            ${{ runner.temp }}/leadya-private-sealed/result-envelope.json
           if-no-files-found: error
-          retention-days: 14
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
-        with:
-          name: leadya-installer-unsigned-${{ github.sha }}
-          path: target/*
-          if-no-files-found: error
-          retention-days: 14
+          retention-days: 7
