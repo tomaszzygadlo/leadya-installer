@@ -18,7 +18,7 @@ class QueueInputBoundaryTests(unittest.TestCase):
                     queue_account_inactive_verified=True, dedicated_disposable_user4_session_verified=True,
                     queue_session_cookie=dict(name='SESSION', value='FAKE_NOT_A_SESSION'),
                     queue_campaign_id=1001, queue_fixture_tag='[TEST] 0.12.4.0 queue b7a46c8d-209e-4f30-a65d-4bbdebc6fbdf',
-                    queue_rows=[dict(id=index + 1, campaign=1001, mode=mode, period=period)
+                    queue_rows=[dict(id=index + 1, campaign=1001, mode=mode, period=period, account_name='')
                                 for index, (mode, period) in enumerate(zip(('QUICK_REFRESH', 'DISCOVER_GROUPS', 'REFRESH'), (1, 24, 24)))])
 
     def parse(self, configuration):

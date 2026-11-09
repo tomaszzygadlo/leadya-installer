@@ -27,6 +27,7 @@ def configuration(path):
     require(isinstance(rows, list) and len(rows) == 3 and len({row['id'] for row in rows}) == 3, 'BASELINE_CHANGED')
     require([row['mode'] for row in rows] == ['QUICK_REFRESH', 'DISCOVER_GROUPS', 'REFRESH'], 'BASELINE_MODES_CHANGED')
     require([row['period'] for row in rows] == [1, 24, 24] and all(row['campaign'] == data.get('queue_campaign_id') for row in rows), 'BASELINE_SCOPE_CHANGED')
+    require(all(isinstance(row.get('account_name'), str) for row in rows), 'BASELINE_ACCOUNT_LABEL_REQUIRED')
     return data
 
 
@@ -90,7 +91,7 @@ def run(args):
         check(len(rows) == len(data['queue_rows']), 'complete_plan_rows')
         for element, expected, mode in zip(rows, data['queue_rows'], translated):
             cells = [cell.text.strip() for cell in element.find_elements(By.CSS_SELECTOR, 'td')]
-            check(len(cells) == 6 and cells[0] == expected['campaign_name'] and bool(cells[1]) and cells[2] == mode and cells[3] == '\u2014' and cells[4] == expected['displayed_start'] and cells[5] == str(expected['period']), 'plan_row_' + expected['mode'])
+            check(len(cells) == 6 and cells[0] == expected['campaign_name'] and cells[1] == expected['account_name'] and cells[2] == mode and cells[3] == '\u2014' and cells[4] == expected['displayed_start'] and cells[5] == str(expected['period']), 'plan_row_' + expected['mode'])
         check(not driver.find_elements(By.CSS_SELECTOR, 'body > div > section button, body > div > section a[href], body > div > section input, body > div > section form'), 'plan_is_read_only')
         result['active_task_tables'] = len(driver.find_elements(By.CSS_SELECTOR, 'body > div > table'))
         require(driver.save_screenshot(str(output / 'queue-progress-plan.png')), 'SCREENSHOT_FAILED')
