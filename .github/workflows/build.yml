@@ -1,44 +1,62 @@
-name: Authenticated post-deploy browser smoke
-run-name: Private release smoke B7A46C8D209E
+name: Private Windows unit RED GREEN
+run-name: Authenticated private unit evidence
 on:
   workflow_dispatch:
+    inputs:
+      input_ref:
+        description: Immutable public ciphertext commit
+        required: true
+        type: string
+      red_tree:
+        description: Normal staged RED Git tree
+        required: true
+        type: string
+      green_tree:
+        description: Prospective GREEN Git tree
+        required: true
+        type: string
+      source_zip_sha256:
+        description: Authenticated source ZIP SHA256
+        required: true
+        type: string
 permissions:
   contents: read
+concurrency:
+  group: private-windows-unit
+  cancel-in-progress: false
 jobs:
-  build:
+  unit:
     runs-on: windows-latest
-    timeout-minutes: 15
+    timeout-minutes: 70
     env:
-      GIT_NO_LAZY_FETCH: '1'
-      GIT_TERMINAL_PROMPT: '0'
       LEADYA_SOURCE_COMMIT: '709c62ba7c1dc27588b1608ef1fc3fed5ec2c232'
       LEADYA_SOURCE_TREE: '55e52f37023f971a89ae32fb876a369fe379da15'
       LEADYA_ARCHIVE_SHA256: '1e7b512be3f640563cd3a08854793dfa01da3f5213ad13cef6bc6c665e51d0c9'
+      DEVUNIT_RED_TREE: ${{ inputs.red_tree }}
+      DEVUNIT_GREEN_TREE: ${{ inputs.green_tree }}
+      DEVUNIT_ZIP_SHA256: ${{ inputs.source_zip_sha256 }}
+      DEVUNIT_INPUT_REF: ${{ inputs.input_ref }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: '${{ github.sha }}'
           persist-credentials: false
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          ref: ea2bef56e1dd727a9f4ec49a74276f47ccfb632d
-          path: foundation
-          persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version: '3.12'
-      - name: Initialize private evidence directory
+      - name: Validate immutable identities and initialize private paths
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          $env:LEADYA_RESULT_ROOT="$env:RUNNER_TEMP/leadya-private-result"
-          $env:LEADYA_SOURCE_ROOT="$env:RUNNER_TEMP/leadya-private-input/source"
-          "LEADYA_RESULT_ROOT=$env:LEADYA_RESULT_ROOT" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
-          "LEADYA_SOURCE_ROOT=$env:LEADYA_SOURCE_ROOT" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
-          New-Item -ItemType Directory -Path $env:LEADYA_RESULT_ROOT | Out-Null
-          @{workflow_commit=$env:GITHUB_SHA;run_url="$env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID";source_commit=$env:LEADYA_SOURCE_COMMIT;runner_os=$env:RUNNER_OS;runner_arch=$env:RUNNER_ARCH} | ConvertTo-Json | Set-Content "$env:LEADYA_RESULT_ROOT/identity.json"
-          @{status='PREPARATION_PENDING';publication_ready=$false} | ConvertTo-Json | Set-Content "$env:LEADYA_RESULT_ROOT/build-status.json"
-      - name: Materialize frozen offline Git source
+          if($env:RUNNER_OS -ne 'Windows' -or $env:RUNNER_ARCH -ne 'X64'){throw 'Expected Windows X64'}
+          foreach($name in @('DEVUNIT_RED_TREE','DEVUNIT_GREEN_TREE','DEVUNIT_INPUT_REF')){if([Environment]::GetEnvironmentVariable($name) -cnotmatch '^[0-9a-f]{40}$'){throw 'Invalid tree or input identity'}}
+          if($env:DEVUNIT_ZIP_SHA256 -cnotmatch '^[0-9a-f]{64}$'){throw 'Invalid source digest'}
+          $paths=@{DEVUNIT_RESULT_ROOT="$env:RUNNER_TEMP/unit-private-result";DEVUNIT_SOURCE_ROOT="$env:RUNNER_TEMP/unit-private-input/source";DEVUNIT_BOOTSTRAP_ROOT="$env:RUNNER_TEMP/unit-gate-bootstrap/source"}
+          foreach($name in $paths.Keys){"$name=$($paths[$name])" | Out-File $env:GITHUB_ENV -Append -Encoding utf8}
+          New-Item -ItemType Directory -Path $paths.DEVUNIT_RESULT_ROOT | Out-Null
+          @{status='PREPARATION_PENDING';runtime_tests='NOT_RUN'} | ConvertTo-Json | Set-Content "$($paths.DEVUNIT_RESULT_ROOT)/unit-status.json"
+          @{workflow_commit=$env:GITHUB_SHA;run_id=$env:GITHUB_RUN_ID;red_tree=$env:DEVUNIT_RED_TREE;prospective_green_tree=$env:DEVUNIT_GREEN_TREE;source_zip_sha256=$env:DEVUNIT_ZIP_SHA256;runner_os=$env:RUNNER_OS;runner_arch=$env:RUNNER_ARCH} | ConvertTo-Json | Set-Content "$($paths.DEVUNIT_RESULT_ROOT)/identity.json"
+      - name: Materialize original small canonical admission checkout
         shell: pwsh
         env:
           LEADYA_SOURCE_000: ${{ secrets.LEADYA_RELEASE_B7A46C8D209E_P000 }}
@@ -132,76 +150,78 @@ jobs:
           LEADYA_SOURCE_088: ${{ secrets.LEADYA_RELEASE_B7A46C8D209E_P088 }}
         run: |
           $ErrorActionPreference='Stop'
-          python release_source_ci.py materialize --parts 89 --archive-sha256 $env:LEADYA_ARCHIVE_SHA256 --commit $env:LEADYA_SOURCE_COMMIT --tree $env:LEADYA_SOURCE_TREE --destination "$env:RUNNER_TEMP/leadya-private-input"
-          if($LASTEXITCODE -ne 0){throw 'Private source validation failed'}
-          Copy-Item "$env:RUNNER_TEMP/leadya-private-input/input-provenance.json" "$env:LEADYA_RESULT_ROOT/input-provenance.json"
-      - name: Acquire and check real runner heavy admission
+          ./Invoke-PrivateUnitPython.ps1 -Script ./release_source_ci.py -ScriptArguments @('materialize','--parts','89','--archive-sha256',$env:LEADYA_ARCHIVE_SHA256,'--commit',$env:LEADYA_SOURCE_COMMIT,'--tree',$env:LEADYA_SOURCE_TREE,'--destination',"$env:RUNNER_TEMP/unit-gate-bootstrap") -BootstrapSource -Log "$env:DEVUNIT_RESULT_ROOT/bootstrap.log"
+          if($LASTEXITCODE -ne 0){throw 'Canonical checkout materialization failed'}
+      - name: Acquire and check genuine heavy Windows admission
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
+          @('LEADYA_MAIN_BRANCH=hotfix/0.12.3','LEADYA_WORK_ENVIRONMENT=hotfix','LEADYA_DEV_BRANCH=dev/0.12.1') | Set-Content "$env:DEVUNIT_BOOTSTRAP_ROOT/.env" -Encoding utf8
           $env:PSModulePath="$env:SystemRoot/System32/WindowsPowerShell/v1.0/Modules"
-          @('LEADYA_MAIN_BRANCH=hotfix/0.12.3','LEADYA_WORK_ENVIRONMENT=hotfix','LEADYA_DEV_BRANCH=dev/0.12.1') | Set-Content "$env:LEADYA_SOURCE_ROOT/.env" -Encoding utf8
-          $gate="$env:LEADYA_SOURCE_ROOT/.agents/skills/leadya-project-manager/scripts/host_gate.py"
-          $receipt="$env:RUNNER_TEMP/leadya-ci-admission-private.json"
-          python $gate acquire --heavy --key release-B7A46C8D209E --checkout $env:LEADYA_SOURCE_ROOT --memory-gib 1 --disk-gib 1 --receipt-out $receipt *> "$env:RUNNER_TEMP/admission-output-private.txt"
+          $gate="$env:DEVUNIT_BOOTSTRAP_ROOT/.agents/skills/leadya-project-manager/scripts/host_gate.py"
+          $receipt="$env:RUNNER_TEMP/unit-admission-private.json"
+          ./Invoke-PrivateUnitPython.ps1 -Script $gate -ScriptArguments @('acquire','--heavy','--key','private-unit-ci','--checkout',$env:DEVUNIT_BOOTSTRAP_ROOT,'--memory-gib','2','--disk-gib','3','--receipt-out',$receipt) -Log "$env:RUNNER_TEMP/unit-acquire-private.log"
           if($LASTEXITCODE -ne 0){throw 'Canonical heavy admission refused'}
           $a=(Get-Content -LiteralPath $receipt -Raw | ConvertFrom-Json).admission
-          python $gate check --key $a.key --token $a.token --checkout $env:LEADYA_SOURCE_ROOT --heavy --memory-gib 1 --disk-gib 1 > "$env:LEADYA_RESULT_ROOT/admission-check.json"
+          ./Invoke-PrivateUnitPython.ps1 -Script $gate -ScriptArguments @('check','--key',$a.key,'--token',$a.token,'--checkout',$env:DEVUNIT_BOOTSTRAP_ROOT,'--heavy','--memory-gib','2','--disk-gib','3') -Log "$env:DEVUNIT_RESULT_ROOT/admission-check.json"
           if($LASTEXITCODE -ne 0){throw 'Canonical heavy check refused'}
-      - name: Run authenticated real Chromium smoke without external actions
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: '${{ inputs.input_ref }}'
+          path: encrypted-input
+          persist-credentials: false
+          sparse-checkout: |
+            source.cipher
+            source-envelope.json
+          sparse-checkout-cone-mode: false
+      - name: Authenticate and decrypt private source
         shell: pwsh
         env:
-          LEADYA_BROWSER_AUTH: ${{ secrets.LEADYA_RELEASE_B7A46C8D209E_BROWSER_AUTH }}
+          DEVUNIT_SOURCE_KEY: ${{ secrets.DEVUNIT_SOURCE_KEY }}
         run: |
           $ErrorActionPreference='Stop'
-          python postdeploy-browser-smoke-source-check.py *> "$env:LEADYA_RESULT_ROOT/unit-tests.log"
-          if($LASTEXITCODE -ne 0){throw 'Source boundary checks failed'}
-          python -m unittest -v test_browser_result_transport test_queue_smoke_source *>> "$env:LEADYA_RESULT_ROOT/unit-tests.log"
-          if($LASTEXITCODE -ne 0){throw 'Evidence transport checks failed'}
-          python -m pip install --disable-pip-version-check --quiet selenium==4.20.0 *> "$env:RUNNER_TEMP/browser-dependencies-private.txt"
-          if($LASTEXITCODE -ne 0){throw 'Browser dependency preparation failed'}
-          $driver=Join-Path $env:CHROMEWEBDRIVER 'chromedriver.exe'
-          $browser='C:/Program Files/Google/Chrome/Application/chrome.exe'
-          if(-not(Test-Path -LiteralPath $driver) -or -not(Test-Path -LiteralPath $browser)){throw 'Image browser/driver unavailable'}
-          $auth=Join-Path $env:RUNNER_TEMP 'leadya-browser-auth-private.json'
-          [IO.File]::WriteAllBytes($auth,[Convert]::FromBase64String($env:LEADYA_BROWSER_AUTH))
-          Remove-Item Env:LEADYA_BROWSER_AUTH
-          $privateOutput=Join-Path $env:RUNNER_TEMP 'leadya-browser-session-output'
-          python postdeploy-browser-smoke.py --input $auth --output $privateOutput --browser chrome --binary $browser --driver $driver *> "$env:RUNNER_TEMP/browser-output-private.txt"
-          $smokeExit=$LASTEXITCODE
-          $queueOutput=Join-Path $env:RUNNER_TEMP 'leadya-browser-queue-output'
-          python postdeploy-queue-smoke.py --input $auth --output $queueOutput --binary $browser --driver $driver *> "$env:RUNNER_TEMP/queue-output-private.txt"
-          $queueExit=$LASTEXITCODE
-          python browser_result_transport.py --directory $privateOutput --queue-directory $queueOutput --output "$env:LEADYA_RESULT_ROOT/build.log"
-          if($LASTEXITCODE -ne 0){throw 'Browser evidence packaging failed'}
-          $status=if($smokeExit -eq 0 -and $queueExit -eq 0){'BROWSER_SMOKE_PASS'}else{'BROWSER_SMOKE_FAIL'}
-          @{status=$status;purpose='post-deploy browser verification';publication_ready=$false} | ConvertTo-Json | Set-Content "$env:LEADYA_RESULT_ROOT/build-status.json"
-          if($smokeExit -ne 0 -or $queueExit -ne 0){throw 'Authenticated browser smoke failed'}
-      - name: Release only this runner admission
+          ./private_unit_crypto.ps1 -Action decrypt -InputDirectory ./encrypted-input -OutputPath "$env:RUNNER_TEMP/unit-source-private.zip" -RedTree $env:DEVUNIT_RED_TREE -GreenTree $env:DEVUNIT_GREEN_TREE -ZipSha256 $env:DEVUNIT_ZIP_SHA256
+      - name: Verify full Git trees and materialize closed source subset
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          ./Invoke-PrivateUnitPython.ps1 -Script ./private_unit_ci.py -ScriptArguments @('materialize','--archive',"$env:RUNNER_TEMP/unit-source-private.zip",'--destination',"$env:RUNNER_TEMP/unit-private-input",'--red-tree',$env:DEVUNIT_RED_TREE,'--green-tree',$env:DEVUNIT_GREEN_TREE,'--zip-sha256',$env:DEVUNIT_ZIP_SHA256,'--provenance',"$env:DEVUNIT_RESULT_ROOT/input-provenance.json") -Log "$env:DEVUNIT_RESULT_ROOT/materialize.log"
+          if($LASTEXITCODE -ne 0){throw 'Authenticated source closure refused'}
+      - name: Compile and execute causal RED then verified GREEN
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $env:JAVA_HOME=$env:JAVA_HOME_17_X64
+          if(-not(Test-Path -LiteralPath "$env:JAVA_HOME/bin/java.exe")){throw 'Image JDK17 unavailable'}
+          [IO.File]::WriteAllText("$env:RUNNER_TEMP/unit-execution-started",'started')
+          ./Invoke-PrivateUnitPython.ps1 -Script ./run_private_units.py -Log "$env:DEVUNIT_RESULT_ROOT/execution.log" -Seconds 3300 -CleanupMarker "$env:RUNNER_TEMP/unit-execution-stopped"
+          if($LASTEXITCODE -ne 0){throw 'Private causal unit execution failed'}
+      - name: Release only own admission after verified child cleanup
         if: always()
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
           $env:PSModulePath="$env:SystemRoot/System32/WindowsPowerShell/v1.0/Modules"
-          $receipt="$env:RUNNER_TEMP/leadya-ci-admission-private.json"
+          if((Test-Path -LiteralPath "$env:RUNNER_TEMP/unit-execution-started") -and -not(Test-Path -LiteralPath "$env:RUNNER_TEMP/unit-execution-stopped")){throw 'No proof that owned unit descendants stopped; retain lease'}
+          $receipt="$env:RUNNER_TEMP/unit-admission-private.json"
           if(Test-Path -LiteralPath $receipt){
-            python "$env:LEADYA_SOURCE_ROOT/.agents/skills/leadya-project-manager/scripts/host_gate.py" release --receipt-file $receipt > "$env:LEADYA_RESULT_ROOT/release.json"
+            ./Invoke-PrivateUnitPython.ps1 -Script "$env:DEVUNIT_BOOTSTRAP_ROOT/.agents/skills/leadya-project-manager/scripts/host_gate.py" -ScriptArguments @('release','--receipt-file',$receipt) -Log "$env:DEVUNIT_RESULT_ROOT/release.json"
             if($LASTEXITCODE -ne 0){throw 'Own admission release failed'}
           }
-      - name: Encrypt result before any artifact upload
+      - name: Encrypt private unit evidence
         if: always()
         shell: pwsh
         env:
           LEADYA_RESULT_KEY: ${{ secrets.LEADYA_RELEASE_B7A46C8D209E_RESULT_KEY }}
         run: |
-          ./seal_release_result.ps1 -ResultDirectory $env:LEADYA_RESULT_ROOT -OutputDirectory "$env:RUNNER_TEMP/leadya-private-sealed"
-      - name: Preserve only encrypted result and authenticated envelope
+          ./private_unit_crypto.ps1 -Action seal -InputDirectory $env:DEVUNIT_RESULT_ROOT -OutputPath "$env:RUNNER_TEMP/unit-private-sealed" -RedTree $env:DEVUNIT_RED_TREE -GreenTree $env:DEVUNIT_GREEN_TREE -ZipSha256 $env:DEVUNIT_ZIP_SHA256
+      - name: Preserve ciphertext and authenticated envelope only
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
-          name: leadya-private-build-B7A46C8D209E
+          name: private-unit-evidence
           path: |
-            ${{ runner.temp }}/leadya-private-sealed/result.cipher
-            ${{ runner.temp }}/leadya-private-sealed/result-envelope.json
+            ${{ runner.temp }}/unit-private-sealed/result.cipher
+            ${{ runner.temp }}/unit-private-sealed/result-envelope.json
           if-no-files-found: error
           retention-days: 7
