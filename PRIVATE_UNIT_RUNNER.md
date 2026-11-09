@@ -119,6 +119,22 @@ confirms its staged tree before review and commit.
 
 ## Lightweight guard checks
 
+Every Maven invocation receives an owned WARN Logback configuration in the encrypted
+result directory, outside the authenticated application source. `logback.configurationFile`
+configures Logback and `logging.config` also covers Spring Boot initialization.
+The console threshold preserves WARN/ERROR and exception stacks; JUnit results and
+assertions remain independent of logging. The 32 MiB command-log, 64 MiB report-total
+and sealed-result limits remain unchanged. No POM, application code or test is modified.
+Each actual Surefire XML must contain the exact forwarded `logback.configurationFile`
+property; otherwise the run refuses the evidence after preserving it.
+
+Property forwarding was checked against the [Surefire 2.22.2 source](https://github.com/apache/maven-surefire/blob/surefire-2.22.2/maven-surefire-common/src/main/java/org/apache/maven/plugin/surefire/AbstractSurefireMojo.java):
+`setupProperties()` combines Maven user properties with configured system properties
+before creating the provider. Logback's [configuration documentation](https://logback.qos.ch/manual/configuration.html)
+specifies that `logback.configurationFile` selects the configuration before classpath
+defaults. Local guards verify XML, real Windows command quoting and property evidence;
+the application run must still prove forwarding and its own test results.
+
 Run `test_private_unit_ci.py` through pythonw with a log path; run
 `Test-PrivateUnitProcess.ps1 -Output <json>` and
 `Test-PrivateUnitCrypto.ps1 -Output <json>` through hidden PowerShell7. They use only

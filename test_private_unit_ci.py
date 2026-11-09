@@ -231,6 +231,50 @@ class ProtocolTests(unittest.TestCase):
         code = execute(cmd_line(maven_command(str(command), directory / 'm2', ['install'])), directory, self.root / 'mvn.log', 10)
         self.assertEqual(7, code)
 
+    def test_owned_logback_configuration_preserves_warn_error_and_is_not_source(self):
+        from run_private_units import write_logback_configuration, maven_command
+        import xml.etree.ElementTree as ET
+        config = write_logback_configuration(self.root / 'unit-logback.xml')
+        xml = ET.parse(config).getroot()
+        self.assertEqual('WARN', xml.find('root').get('level'))
+        appender = xml.find('appender')
+        self.assertEqual('ch.qos.logback.core.ConsoleAppender', appender.get('class'))
+        self.assertEqual('WARN', appender.find('filter/level').text)
+        self.assertIn('%ex', appender.find('encoder/pattern').text)
+        self.assertEqual('UTF-8', appender.find('encoder/charset').text)
+        with self.assertRaises(FileExistsError):
+            write_logback_configuration(config)
+        command = maven_command('mvn.cmd', self.root/'m2',['-Dtest=sample.Case','test'],config)
+        self.assertIn('-Dlogback.configurationFile='+str(config),command)
+        self.assertIn('-Dlogging.config='+str(config),command)
+        self.assertIn('-Dtest=sample.Case',command)
+        self.assertNotIn('-DskipTests',command)
+
+    @unittest.skipUnless(os.name == 'nt', 'Windows JVM property command transport')
+    def test_logback_property_reaches_the_maven_cli_without_breaking_spaced_paths(self):
+        from run_private_units import write_logback_configuration, maven_command, cmd_line, execute
+        directory = self.root / 'logging property path'; directory.mkdir()
+        config = write_logback_configuration(directory/'unit-logback.xml')
+        command = directory / 'mvn.cmd'
+        command.write_bytes(b'@echo off\r\nif not "%~6"=="-Dlogback.configurationFile=%~dp0unit-logback.xml" exit /b 21\r\nif not "%~7"=="-Dlogging.config=%~dp0unit-logback.xml" exit /b 22\r\nif not "%~8"=="test" exit /b 23\r\nexit /b 7\r\n')
+        code=execute(cmd_line(maven_command(str(command),directory/'m2',['test'],config)),directory,self.root/'logging-command.log',10)
+        self.assertEqual(7,code)
+
+    def test_actual_junit_xml_must_prove_the_logback_property_was_forwarded(self):
+        from run_private_units import preserved_evaluation
+        expected = str(self.root/'unit-logback.xml')
+        reports = self.reports('<testcase classname="sample.Case" name="passes"/>')
+        with self.assertRaisesRegex(ValueError,'LOGBACK_PROPERTY_NOT_FORWARDED'):
+            preserved_evaluation(reports,self.root/'missing-property',p.evaluate_green,['sample.Case'],0,logging_configuration=expected)
+        self.assertTrue((self.root/'missing-property/TEST-sample.xml').is_file())
+        xml = (reports/'TEST-sample.xml').read_text()
+        import xml.etree.ElementTree as ET
+        root = ET.fromstring(xml); props=ET.SubElement(root,'properties')
+        ET.SubElement(props,'property',name='logback.configurationFile',value=expected)
+        (reports/'TEST-sample.xml').write_bytes(ET.tostring(root))
+        summary=preserved_evaluation(reports,self.root/'forwarded-property',p.evaluate_green,['sample.Case'],0,logging_configuration=expected)
+        self.assertEqual(1,summary['tests'])
+
 
 if __name__ == '__main__':
     import sys

@@ -7,6 +7,7 @@ import subprocess
 import sys
 import time
 import re
+import xml.etree.ElementTree as ET
 import private_unit_ci as protocol
 
 
@@ -25,7 +26,7 @@ def closed_error_code(error):
     return text if type(error) is ValueError and re.fullmatch(r'[A-Z][A-Z0-9_-]{1,127}', text) else type(error).__name__
 
 
-def preserved_evaluation(reports, destination, evaluator, *arguments):
+def preserved_evaluation(reports, destination, evaluator, *arguments, logging_configuration=None):
     # Evidence must survive a guard refusal (wrong class, skip or malformed report).
     if reports.is_dir():
         protocol.ordinary(reports)
@@ -42,6 +43,14 @@ def preserved_evaluation(reports, destination, evaluator, *arguments):
                 raw = incoming.read(8 * 1024 * 1024 + 1)
                 protocol.need(len(raw) == size, 'REPORT_CHANGED_DURING_PRESERVATION')
                 outgoing.write(raw)
+    if logging_configuration is not None:
+        # Surefire 2.22.2 forwards Maven user properties into the fork; verify actual XML evidence.
+        protocol.test_cases(destination)
+        for path in destination.glob('TEST-*.xml'):
+            root = ET.fromstring(path.read_bytes())
+            values = {item.get('name'): item.get('value') for item in root.findall('properties/property')}
+            protocol.need(values.get('logback.configurationFile') == str(logging_configuration),
+                          'LOGBACK_PROPERTY_NOT_FORWARDED')
     return evaluator(reports, *arguments)
 
 
@@ -54,10 +63,29 @@ def cmd_line(command):
     return '"' + executable + '" /d /s /c ' + body
 
 
-def maven_command(maven, repository, arguments):
+def write_logback_configuration(path):
+    # Owned test-process configuration, outside the authenticated application tree.
+    # The appender filter also retains WARN/ERROR when a library explicitly enables DEBUG.
+    raw = '''<configuration>
+  <appender name="UNIT_CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+    <filter class="ch.qos.logback.classic.filter.ThresholdFilter"><level>WARN</level></filter>
+    <encoder><charset>UTF-8</charset><pattern>%d{HH:mm:ss.SSS} %-5level %logger{48} - %msg%n%ex</pattern></encoder>
+  </appender>
+  <root level="WARN"><appender-ref ref="UNIT_CONSOLE"/></root>
+</configuration>
+'''
+    with path.open('x', encoding='utf-8') as output:
+        output.write(raw)
+    return path.resolve()
+
+
+def maven_command(maven, repository, arguments, logging_configuration=None):
     # Unit evidence installs dependency JARs into M2, never the POM's deployment-copy Ant targets.
+    logging = [] if logging_configuration is None else [
+        '-Dlogback.configurationFile=' + str(logging_configuration),
+        '-Dlogging.config=' + str(logging_configuration)]
     return [maven, '-B', '-ntp', '-Dstyle.color=never', '-Dmaven.antrun.skip=true',
-            '-Dmaven.repo.local=' + str(repository), *arguments]
+            '-Dmaven.repo.local=' + str(repository), *logging, *arguments]
 
 
 def execute(arguments, cwd, log, timeout=1200):
@@ -96,6 +124,8 @@ def main():
                 'prospective_green_tree': os.environ['DEVUNIT_GREEN_TREE'],
                 'source_zip_sha256': os.environ['DEVUNIT_ZIP_SHA256'], 'green': [], 'node': []}
     (result / 'unit-status.json').write_text(json.dumps(evidence, indent=2))
+    protocol.need(not (result == source or source in result.parents), 'LOGGING_CONFIG_INSIDE_SOURCE')
+    logging_configuration = write_logback_configuration(result / 'unit-logback.xml')
     counter = 0
 
     def mvn(args, label, expect_success=True):
@@ -103,7 +133,7 @@ def main():
         counter += 1
         update_status(stage=label)
         # cmd's syntax is closed: every component is validated and no shell expansion is accepted.
-        command = maven_command(maven, source.parent / 'm2', args)
+        command = maven_command(maven, source.parent / 'm2', args, logging_configuration)
         log = result / f'{counter:02d}-{label}.log'
         code = execute(cmd_line(command), source, log)
         if expect_success:
@@ -121,7 +151,8 @@ def main():
     code = mvn(['-f', red['module'] + '/pom.xml', '-Dtest=' + red['class'] + '#' + red['method'],
                 '-Dsurefire.rerunFailingTestsCount=0', '-DfailIfNoTests=true', 'test'], 'red-test', False)
     update_status(stage='red-evidence')
-    evidence['red'] = preserved_evaluation(reports, result / 'red-reports', protocol.evaluate_red, plan, code)
+    evidence['red'] = preserved_evaluation(reports, result / 'red-reports', protocol.evaluate_red, plan, code,
+                                         logging_configuration=logging_configuration)
     update_status(red=evidence['red'])
     # No patch runs unless the exact regression reached the expected failing assertion.
     update_status(stage='apply-green')
@@ -134,7 +165,8 @@ def main():
                     '-Dsurefire.rerunFailingTestsCount=0', '-DfailIfNoTests=true', 'test'], 'green-' + suite['module'], False)
         update_status(stage='green-evidence-' + suite['module'])
         summary = preserved_evaluation(reports, result / ('green-' + suite['module'] + '-reports'), protocol.evaluate_green,
-                                      suite['tests'], code, red if suite['module'] == red['module'] else None)
+                                      suite['tests'], code, red if suite['module'] == red['module'] else None,
+                                      logging_configuration=logging_configuration)
         evidence['green'].append({'module': suite['module'], **summary})
         update_status(green=evidence['green'])
     node_root = source / 'SpringAppFrontend/src/test/js'
