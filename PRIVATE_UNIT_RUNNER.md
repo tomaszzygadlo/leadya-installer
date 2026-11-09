@@ -19,7 +19,7 @@ input commit contains `source.cipher`, `source-envelope.json`, `bootstrap.cipher
 and `bootstrap-envelope.json`; no private
 application source is published. Keep ciphertext below the hosting file limit.
 
-The isolated `LEADYA_FC_8D90A6C2B147_` namespace owns exactly three independent
+The isolated `LEADYA_FC3_705BE814AC92_` namespace owns exactly three independent
 base64 32-byte repository secrets: `BOOTSTRAP_KEY`, `SOURCE_KEY`, `RESULT_KEY`.
 The operator first checks that those names and both new branch refs do not exist.
 Only the operator's keys may be created or removed; retain them until every run

@@ -200,9 +200,9 @@ class ProtocolTests(unittest.TestCase):
         self.assertNotIn('BROWSER_AUTH', workflow)
         import re
         secrets = re.findall(r'\$\{\{ secrets\.([A-Z0-9_]+) \}\}', workflow)
-        self.assertEqual({'LEADYA_FC_8D90A6C2B147_BOOTSTRAP_KEY',
-                          'LEADYA_FC_8D90A6C2B147_SOURCE_KEY',
-                          'LEADYA_FC_8D90A6C2B147_RESULT_KEY'}, set(secrets))
+        self.assertEqual({'LEADYA_FC3_705BE814AC92_BOOTSTRAP_KEY',
+                          'LEADYA_FC3_705BE814AC92_SOURCE_KEY',
+                          'LEADYA_FC3_705BE814AC92_RESULT_KEY'}, set(secrets))
         self.assertEqual(3, len(secrets))
         self.assertNotIn('B7A46C8D209E', workflow)
         self.assertLess(workflow.index('path: encrypted-input'), workflow.index('Materialize original small canonical'))
