@@ -14,8 +14,6 @@ jobs:
       LEADYA_SOURCE_COMMIT: '709c62ba7c1dc27588b1608ef1fc3fed5ec2c232'
       LEADYA_SOURCE_TREE: '55e52f37023f971a89ae32fb876a369fe379da15'
       LEADYA_ARCHIVE_SHA256: '1e7b512be3f640563cd3a08854793dfa01da3f5213ad13cef6bc6c665e51d0c9'
-      LEADYA_RESULT_ROOT: '${{ runner.temp }}/leadya-private-result'
-      LEADYA_SOURCE_ROOT: '${{ runner.temp }}/leadya-private-input/source'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -33,6 +31,10 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
+          $env:LEADYA_RESULT_ROOT="$env:RUNNER_TEMP/leadya-private-result"
+          $env:LEADYA_SOURCE_ROOT="$env:RUNNER_TEMP/leadya-private-input/source"
+          "LEADYA_RESULT_ROOT=$env:LEADYA_RESULT_ROOT" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "LEADYA_SOURCE_ROOT=$env:LEADYA_SOURCE_ROOT" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
           New-Item -ItemType Directory -Path $env:LEADYA_RESULT_ROOT | Out-Null
           @{workflow_commit=$env:GITHUB_SHA;run_url="$env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID";source_commit=$env:LEADYA_SOURCE_COMMIT;runner_os=$env:RUNNER_OS;runner_arch=$env:RUNNER_ARCH} | ConvertTo-Json | Set-Content "$env:LEADYA_RESULT_ROOT/identity.json"
           @{status='PREPARATION_PENDING';publication_ready=$false} | ConvertTo-Json | Set-Content "$env:LEADYA_RESULT_ROOT/build-status.json"
