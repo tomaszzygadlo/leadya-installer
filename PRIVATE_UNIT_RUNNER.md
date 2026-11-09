@@ -15,10 +15,19 @@ application closure or starting Maven. A refused admission stops execution.
 
 Dispatch requires `input_ref` (40 lowercase hex commit), `red_tree`, `green_tree`
 (40 lowercase hex trees), and `source_zip_sha256` (64 lowercase hex). The public
-input commit contains only `source.cipher` and `source-envelope.json`; no private
+input commit contains `source.cipher`, `source-envelope.json`, `bootstrap.cipher`
+and `bootstrap-envelope.json`; no private
 application source is published. Keep ciphertext below the hosting file limit.
 
-`DEVUNIT_SOURCE_KEY` is one base64 32-byte repository secret. AES256-GCM uses a
+The isolated `LEADYA_FC_8D90A6C2B147_` namespace owns exactly three independent
+base64 32-byte repository secrets: `BOOTSTRAP_KEY`, `SOURCE_KEY`, `RESULT_KEY`.
+The operator first checks that those names and both new branch refs do not exist.
+Only the operator's keys may be created or removed; retain them until every run
+using this workflow is terminal and its encrypted results are safely preserved.
+No previous namespace or another operator's source key is used.
+
+`SOURCE_KEY` is mapped to `DEVUNIT_SOURCE_KEY` only in the source decryption step.
+AES256-GCM uses a
 fresh 12-byte nonce, 16-byte tag, and literal AAD:
 
 ```
@@ -29,6 +38,20 @@ The envelope fields are `format: leadya-private-unit-source/v1`, `red_tree`,
 `nonce_base64`, `tag_base64`, `aad_utf8`, `cipher_sha256`, `plaintext_sha256`.
 The last field equals the dispatch ZIP digest. Authentication and digest checks
 finish before writing any plaintext ZIP.
+
+The bootstrap uses its own `DEVUNIT_BOOTSTRAP_KEY` mapping and distinct domain:
+
+```
+leadya-private-unit-bootstrap/v1|<bootstrap_commit>|<bootstrap_tree>|<bootstrap_sha256>|<red_tree>|<green_tree>|<source_zip_sha256>
+```
+
+Bootstrap commit, tree and archive digest are pinned in the workflow and crypto
+implementation. The envelope adds `bootstrap_commit` and `bootstrap_tree`, uses
+format `leadya-private-unit-bootstrap/v1`, and includes the same GCM fields and
+`red_tree` as the source envelope. Ciphertext is bounded to 4 MiB. Authentication
+and the exact pinned plaintext digest are checked before writing the archive.
+The original materializer reads that local archive, validates its original full
+offline Git closure, and receives no key or chunk environment variables.
 
 ZIP physical entries are exactly `source/<path>` and these four controls:
 
@@ -100,10 +123,10 @@ and [process attribute contract](https://learn.microsoft.com/en-us/windows/win32
 Maven/Node receive a fixed environment allowlist without source/result keys, browser
 authentication or GitHub credentials. This is custody for authenticated owned source,
 not a sandbox for hostile code sharing the runner's user account. Git checkout does
-not persist credentials. Bootstrap source secrets are supplied only to the original
-small source materializer; browser authentication is never read by this workflow.
+not persist credentials. Bootstrap keys reach only the bootstrap decryption step;
+the child allowlist contains no secret keys. Browser authentication is never read.
 
-Only AES-GCM ciphertext and its envelope are uploaded. Existing B7 RESULT_KEY is
+Only AES-GCM ciphertext and its envelope are uploaded. The new owned RESULT_KEY is
 read only by the final sealing step, with a fresh nonce and distinct result AAD:
 
 ```

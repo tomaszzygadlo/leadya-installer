@@ -1,6 +1,5 @@
 """Pinned private-source build transport; never executes an installer."""
 import argparse
-import base64
 import hashlib
 import io
 import json
@@ -69,8 +68,14 @@ def validate_files(root, closure):
 
 
 def materialize(args):
-    encoded = ''.join(os.environ[f'LEADYA_SOURCE_{n:03}'] for n in range(args.parts))
-    raw = base64.b64decode(encoded, validate=True)
+    archive_path = Path(args.archive)
+    for current in (archive_path, *archive_path.parents):
+        info = current.lstat()
+        if current.is_symlink() or getattr(info, 'st_file_attributes', 0) & 1024:
+            raise ValueError('Aliased bootstrap archive')
+    if not archive_path.is_file() or archive_path.stat().st_size > 4 * 1024 * 1024:
+        raise ValueError('Invalid bounded bootstrap archive')
+    raw = archive_path.read_bytes()
     if sha(raw) != args.archive_sha256:
         raise ValueError('Source archive SHA256 mismatch')
     destination = Path(args.destination)
@@ -160,7 +165,7 @@ if __name__ == '__main__':
     load = sub.add_parser('materialize')
     for option in ('destination', 'archive-sha256', 'commit', 'tree'):
         load.add_argument('--' + option, required=True)
-    load.add_argument('--parts', type=int, required=True)
+    load.add_argument('--archive', required=True)
     freeze = sub.add_parser('collect')
     for option in ('source', 'result', 'commit'):
         freeze.add_argument('--' + option, required=True)

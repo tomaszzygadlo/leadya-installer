@@ -5,6 +5,7 @@ New-Item -ItemType Directory -Path $root | Out-Null
 $savedTemp=$env:RUNNER_TEMP
 $env:RUNNER_TEMP=$root
 $env:DEVUNIT_SOURCE_KEY='synthetic-sentinel'
+$env:DEVUNIT_BOOTSTRAP_KEY='synthetic-sentinel'
 $env:LEADYA_RESULT_KEY='synthetic-sentinel'
 $env:GITHUB_TOKEN='synthetic-sentinel'
 $script=Join-Path $root 'fixture.py'
@@ -14,7 +15,7 @@ import os
 import sys
 import synthetic_sibling
 assert synthetic_sibling.VALUE == 73
-assert not any(name in os.environ for name in ('DEVUNIT_SOURCE_KEY', 'LEADYA_RESULT_KEY', 'GITHUB_TOKEN'))
+assert not any(name in os.environ for name in ('DEVUNIT_SOURCE_KEY', 'DEVUNIT_BOOTSTRAP_KEY', 'LEADYA_RESULT_KEY', 'GITHUB_TOKEN'))
 print('bounded synthetic fixture')
 raise SystemExit(int(sys.argv[1]))
 '@ | Set-Content -LiteralPath $script -Encoding utf8
@@ -30,6 +31,6 @@ try{
  @{status='PASS';checks=@('actual-wrapper-secret-env-absent','pythonw-exit-0-and-7','repeat-native-transport-in-one-shell','verified-cleanup-markers','pinned-script-sibling-import','private-traceback-preserved-before-stream-close')} | ConvertTo-Json | Set-Content -LiteralPath $Output
 }finally{
  $env:RUNNER_TEMP=$savedTemp
- Remove-Item Env:DEVUNIT_SOURCE_KEY,Env:LEADYA_RESULT_KEY,Env:GITHUB_TOKEN -ErrorAction SilentlyContinue
+ Remove-Item Env:DEVUNIT_SOURCE_KEY,Env:DEVUNIT_BOOTSTRAP_KEY,Env:LEADYA_RESULT_KEY,Env:GITHUB_TOKEN -ErrorAction SilentlyContinue
  if([IO.Path]::GetFullPath($root).StartsWith([IO.Path]::GetFullPath([IO.Path]::GetTempPath()),[StringComparison]::OrdinalIgnoreCase)){Remove-Item -LiteralPath $root -Recurse -Force}
 }

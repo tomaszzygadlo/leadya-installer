@@ -1,4 +1,4 @@
-param([Parameter(Mandatory)][ValidateSet('decrypt','seal')][string]$Action,
+param([Parameter(Mandatory)][ValidateSet('decrypt','bootstrap','seal')][string]$Action,
       [Parameter(Mandatory)][string]$InputDirectory,
       [Parameter(Mandatory)][string]$OutputPath,
       [Parameter(Mandatory)][string]$RedTree,
@@ -16,23 +16,40 @@ if(Test-Path -LiteralPath $OutputPath){throw 'Existing crypto output refused'}
 NoAlias (Split-Path -Parent ([IO.Path]::GetFullPath($OutputPath)))
 $key=$null;$plain=$null;$aes=$null
 try{
- if($Action -eq 'decrypt'){
-  $key=[Convert]::FromBase64String($env:DEVUNIT_SOURCE_KEY)
-  Remove-Item Env:DEVUNIT_SOURCE_KEY
+ if($Action -in @('decrypt','bootstrap')){
+  $bootstrap=$Action -eq 'bootstrap'
+  if($bootstrap){
+   $key=[Convert]::FromBase64String($env:DEVUNIT_BOOTSTRAP_KEY)
+   Remove-Item Env:DEVUNIT_BOOTSTRAP_KEY
+  }else{
+   $key=[Convert]::FromBase64String($env:DEVUNIT_SOURCE_KEY)
+   Remove-Item Env:DEVUNIT_SOURCE_KEY
+  }
   if($key.Length -ne 32){throw 'Invalid source key'}
-  $cipherPath=Join-Path $InputDirectory 'source.cipher';$envelopePath=Join-Path $InputDirectory 'source-envelope.json'
+  $stem=if($bootstrap){'bootstrap'}else{'source'}
+  $cipherPath=Join-Path $InputDirectory ($stem+'.cipher');$envelopePath=Join-Path $InputDirectory ($stem+'-envelope.json')
   NoAlias $cipherPath;NoAlias $envelopePath
   if((Get-Item -LiteralPath $cipherPath).Length -gt 134217728 -or (Get-Item -LiteralPath $envelopePath).Length -gt 8192){throw 'Input transport limit'}
   $e=Get-Content -LiteralPath $envelopePath -Raw | ConvertFrom-Json
-  $aad="leadya-private-unit-source/v1|$RedTree|$ZipSha256"
-  if($e.format -cne 'leadya-private-unit-source/v1' -or $e.aad_utf8 -cne $aad -or $e.red_tree -cne $RedTree -or $e.plaintext_sha256 -cne $ZipSha256){throw 'Input envelope identity mismatch'}
+  if($bootstrap){
+   $commit='709c62ba7c1dc27588b1608ef1fc3fed5ec2c232'
+   $tree='55e52f37023f971a89ae32fb876a369fe379da15'
+   $digest='1e7b512be3f640563cd3a08854793dfa01da3f5213ad13cef6bc6c665e51d0c9'
+   $format='leadya-private-unit-bootstrap/v1'
+   $aad="$format|$commit|$tree|$digest|$RedTree|$GreenTree|$ZipSha256"
+   if($e.bootstrap_commit -cne $commit -or $e.bootstrap_tree -cne $tree -or (Get-Item -LiteralPath $cipherPath).Length -gt 4194304){throw 'Bootstrap identity or size mismatch'}
+  }else{
+   $digest=$ZipSha256;$format='leadya-private-unit-source/v1'
+   $aad="$format|$RedTree|$ZipSha256"
+  }
+  if($e.format -cne $format -or $e.aad_utf8 -cne $aad -or $e.red_tree -cne $RedTree -or $e.plaintext_sha256 -cne $digest){throw 'Input envelope identity mismatch'}
   $cipher=[IO.File]::ReadAllBytes($cipherPath)
   if((HashBytes $cipher) -cne $e.cipher_sha256){throw 'Input cipher digest mismatch'}
   $nonce=[Convert]::FromBase64String($e.nonce_base64);$tag=[Convert]::FromBase64String($e.tag_base64)
   if($nonce.Length -ne 12 -or $tag.Length -ne 16){throw 'Invalid GCM parameters'}
   $plain=[byte[]]::new($cipher.Length);$aes=[Security.Cryptography.AesGcm]::new($key,16)
   $aes.Decrypt($nonce,$cipher,$tag,$plain,[Text.Encoding]::UTF8.GetBytes($aad))
-  if((HashBytes $plain) -cne $ZipSha256){throw 'Plaintext source digest mismatch'}
+  if((HashBytes $plain) -cne $digest){throw 'Plaintext source digest mismatch'}
   [IO.File]::WriteAllBytes($OutputPath,$plain)
  }else{
   $key=[Convert]::FromBase64String($env:LEADYA_RESULT_KEY)

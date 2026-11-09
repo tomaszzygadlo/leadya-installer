@@ -198,7 +198,16 @@ class ProtocolTests(unittest.TestCase):
     def test_workflow_has_no_browser_auth_and_uploads_only_cipher(self):
         workflow = (Path(__file__).parent / '.github/workflows/build.yml').read_text()
         self.assertNotIn('BROWSER_AUTH', workflow)
-        self.assertEqual(89, workflow.count('${{ secrets.LEADYA_RELEASE_B7A46C8D209E_P'))
+        import re
+        secrets = re.findall(r'\$\{\{ secrets\.([A-Z0-9_]+) \}\}', workflow)
+        self.assertEqual({'LEADYA_FC_8D90A6C2B147_BOOTSTRAP_KEY',
+                          'LEADYA_FC_8D90A6C2B147_SOURCE_KEY',
+                          'LEADYA_FC_8D90A6C2B147_RESULT_KEY'}, set(secrets))
+        self.assertEqual(3, len(secrets))
+        self.assertNotIn('B7A46C8D209E', workflow)
+        self.assertLess(workflow.index('path: encrypted-input'), workflow.index('Materialize original small canonical'))
+        self.assertIn("-Action bootstrap", workflow)
+        self.assertIn("'--archive'", workflow)
         artifact = workflow.split('uses: actions/upload-artifact@')[1]
         self.assertNotIn('unit-private-result', artifact)
         self.assertIn('/result.cipher', artifact)
