@@ -23,7 +23,8 @@ function Enter-LocalLaunchGate([string]$Name) {
     return $null
 }
 
-function Invoke-LocalLaunchBootstrap([Diagnostics.ProcessStartInfo]$StartInfo) {
+function Invoke-LocalLaunchBootstrap([Diagnostics.ProcessStartInfo]$StartInfo, [switch]$NativePreparation,
+    [ValidateRange(1, 60000)][int]$PreparationTimeoutMilliseconds = 30000) {
     $child = New-Object Diagnostics.Process
     $child.StartInfo = $StartInfo
     $child.StartInfo.RedirectStandardOutput = $true
@@ -44,7 +45,8 @@ function Invoke-LocalLaunchBootstrap([Diagnostics.ProcessStartInfo]$StartInfo) {
                     $count = $stream.Read.GetAwaiter().GetResult()
                     if ($count -eq 0) { $stream.Done = $true }
                     else {
-                        $keep = [Math]::Min($count, [Math]::Max(0, 16384 - $stream.Text.Length))
+                        $capacity = if ($NativePreparation) { 65536 } else { 16384 }
+                        $keep = [Math]::Min($count, [Math]::Max(0, $capacity - $stream.Text.Length))
                         if ($keep) { [void]$stream.Text.Append($stream.Buffer, 0, $keep) }
                         $stream.Read = $stream.Reader.ReadAsync($stream.Buffer, 0, $stream.Buffer.Length)
                     }
@@ -52,20 +54,34 @@ function Invoke-LocalLaunchBootstrap([Diagnostics.ProcessStartInfo]$StartInfo) {
             }
             $exited = $child.WaitForExit(50)
             if ($exited -and @($streams | Where-Object { -not $_.Done }).Count -eq 0) { break }
-        } while ($watch.ElapsedMilliseconds -lt 3000)
+        } while ($watch.ElapsedMilliseconds -lt $(if ($NativePreparation) { $PreparationTimeoutMilliseconds } else { 3000 }))
+        if ($NativePreparation) {
+            # Preparation must finish and return its protocol stdout before any application starts.
+            if (-not $exited -or @($streams | Where-Object { -not $_.Done }).Count -gt 0) {
+                return [pscustomobject]@{ ExitCode=12; Code='LOCAL_JAVA_TIMEOUT'; Output='' }
+            }
+            if ($child.ExitCode -ne 0) {
+                return [pscustomobject]@{ ExitCode=$child.ExitCode; Code=(Get-LocalJvmFailureCode (($streams | ForEach-Object { $_.Text.ToString() }) -join "`n")); Output='' }
+            }
+            return [pscustomobject]@{ ExitCode=0; Code='LOCAL_VALID'; Output=$streams[0].Text.ToString() }
+        }
         if ($exited -and $child.ExitCode -notin @(0, 5)) {
             return [pscustomobject]@{ ExitCode=$child.ExitCode; Code=(Get-LocalJvmFailureCode (($streams | ForEach-Object { $_.Text.ToString() }) -join "`n")); State='FAILED' }
         }
         return [pscustomobject]@{ ExitCode=0; Code='LOCAL_VALID'; State=$(if ($exited -and $child.ExitCode -eq 5) { 'ALREADY_RUNNING' } else { 'START_REQUESTED' }) }
     } catch {
         # Diagnostics must never launch a duplicate while the original process is still alive.
-        if ($started -and -not $child.HasExited) { return [pscustomobject]@{ ExitCode=0; Code='LOCAL_VALID'; State='START_REQUESTED' } }
+        if (-not $NativePreparation -and $started -and -not $child.HasExited) { return [pscustomobject]@{ ExitCode=0; Code='LOCAL_VALID'; State='START_REQUESTED' } }
         throw
     } finally {
         # javaw previously had no console streams. Only the early JVM diagnostics are consumed;
         # a live application continues with its existing file logging after this bounded window.
-        foreach ($stream in $streams) { try { $stream.Reader.BaseStream.Dispose() } catch { } }
-        $child.Dispose()
+        try {
+            if ($NativePreparation -and $started -and -not $child.HasExited) { $child.Kill(); $child.WaitForExit() }
+        } finally {
+            foreach ($stream in $streams) { try { $stream.Reader.BaseStream.Dispose() } catch { } }
+            $child.Dispose()
+        }
     }
 }
 
@@ -363,9 +379,16 @@ try {
     if ($startupSaved) { Remove-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'Leadya Checking Program' -ErrorAction SilentlyContinue }
     $env:LEADYA_HOME = $runtime
     $prepareJava = Join-Path (Split-Path $java) 'java.exe'
-    $branded = & $prepareJava -Xms16m -Xmx64m -XX:-UsePerfData ("-Dleadya.local.home=" + $runtime) -cp $jar pl.softwizard.sellbot.base.runtime.NativeLauncherSupport prepare-checking-base64 $jar $runtime
-    if ($LASTEXITCODE -ne 0) { throw 'LOCAL_NATIVE_LAUNCHER' }
-    $branded = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String(([string]($branded -join "`n")).Trim()))
+    $nativeStart = New-Object Diagnostics.ProcessStartInfo
+    $nativeStart.FileName = $prepareJava
+    $nativeStart.WorkingDirectory = $runtime
+    $nativeStart.UseShellExecute = $false
+    $nativeStart.CreateNoWindow = $true
+    $nativeStart.Arguments = '-Xms16m -Xmx64m -XX:-UsePerfData "-Dleadya.local.home=' + $runtime + '" -cp "' + $jar + '" pl.softwizard.sellbot.base.runtime.NativeLauncherSupport prepare-checking-base64 "' + $jar + '" "' + $runtime + '"'
+    $preparedNative = Invoke-LocalLaunchPreparation -SessionAlive { Test-LocalLaunchOwner $launchOwner } -Attempt {
+        Invoke-LocalLaunchBootstrap $nativeStart -NativePreparation
+    }
+    $branded = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($preparedNative.Output.Trim()))
     if (-not [IO.Path]::IsPathRooted($branded) -or -not [IO.File]::Exists($branded) -or
         -not $branded.StartsWith((Join-Path $runtime '.leadya-native') + '\', [StringComparison]::OrdinalIgnoreCase)) { throw 'LOCAL_NATIVE_LAUNCHER' }
     $start = New-Object Diagnostics.ProcessStartInfo
