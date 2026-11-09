@@ -1,0 +1,9 @@
+{
+  "format": "leadya-private-unit-source/v1",
+  "red_tree": "4120c22b13040c195f6484181446284d502661e2",
+  "plaintext_sha256": "f7a1335d6b6e719620516f05a23a357a38e825e59d082a41b9defbab92f360e0",
+  "aad_utf8": "leadya-private-unit-source/v1|4120c22b13040c195f6484181446284d502661e2|f7a1335d6b6e719620516f05a23a357a38e825e59d082a41b9defbab92f360e0",
+  "nonce_base64": "229YT+0rrLroJhQT",
+  "tag_base64": "5wA+bD/aCjGMIxkBbmGMsg==",
+  "cipher_sha256": "f28ce77e92b8f9f809f35a6e79fe5d2536bd961ba444bffeb3cbf6b6ae3a31db"
+}
