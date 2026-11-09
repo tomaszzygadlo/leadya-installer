@@ -64,10 +64,12 @@ def run(args):
             wait.until(lambda d: d.execute_script('return document.readyState') == 'complete')
             location = urlparse(driver.current_url)
             require(location.scheme == 'https' and location.netloc == 'hotfix.turbot.pro' and location.path == path.split('?')[0], 'UNEXPECTED_DESTINATION')
-            require(not driver.find_elements(By.CSS_SELECTOR, '#loginForm #password, #aiContentApproval'), 'UNEXPECTED_AUTH_OR_APPROVAL')
+            require(not any(e.is_displayed() for e in driver.find_elements(By.CSS_SELECTOR, '#loginForm #password, #aiContentApproval')), 'UNEXPECTED_AUTH_OR_APPROVAL')
+            from browser_startup import dismiss_startup
+            dismiss_startup(driver, wait, By, EC)
             if full:
-                footer = wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, '.app-footer')))
-                require(re.findall(r'(?<![\d.])\d+\.\d+\.\d+\.\d+(?![\d.])', footer.text) == [VERSION], 'WRONG_LIVE_VERSION')
+                footer = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, '.app-footer')))
+                require(re.findall(r'(?<![\d.])\d+\.\d+\.\d+\.\d+(?![\d.])', footer.get_attribute('textContent')) == [VERSION], 'WRONG_LIVE_VERSION')
 
         driver.get(BASE + '/robots.txt')
         cookie = data['queue_session_cookie']

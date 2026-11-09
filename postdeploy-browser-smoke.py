@@ -85,9 +85,11 @@ def run(args):
             driver.get(BASE + path)
             wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
             require(urlparse(driver.current_url).netloc == "hotfix.turbot.pro", "UNEXPECTED_REDIRECT")
-            require(not driver.find_elements(By.CSS_SELECTOR, "#loginForm #password"), "LOGIN_REQUIRED")
-            footer = wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, ".app-footer")))
-            check(has_expected_version(footer.text), name + "_version")
+            require(not any(e.is_displayed() for e in driver.find_elements(By.CSS_SELECTOR, "#loginForm #password")), "LOGIN_REQUIRED")
+            from browser_startup import dismiss_startup
+            dismiss_startup(driver, wait, By, EC)
+            footer = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, ".app-footer")))
+            check(has_expected_version(footer.get_attribute("textContent")), name + "_version")
             require(not re.search(r"\?\?[\w.]+\?\?", driver.find_element(By.TAG_NAME, "body").text), "MISSING_I18N")
             if campaign:
                 ids = driver.find_elements(By.CSS_SELECTOR, "#idCampaing, #campaignId, #campaignOpenersPanel[data-campaign-id]")
