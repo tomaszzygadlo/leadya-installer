@@ -156,7 +156,7 @@ jobs:
           $ErrorActionPreference='Stop'
           python postdeploy-browser-smoke-source-check.py *> "$env:LEADYA_RESULT_ROOT/unit-tests.log"
           if($LASTEXITCODE -ne 0){throw 'Source boundary checks failed'}
-          python -m unittest -v test_browser_result_transport *>> "$env:LEADYA_RESULT_ROOT/unit-tests.log"
+          python -m unittest -v test_browser_result_transport test_queue_smoke_source *>> "$env:LEADYA_RESULT_ROOT/unit-tests.log"
           if($LASTEXITCODE -ne 0){throw 'Evidence transport checks failed'}
           python -m pip install --disable-pip-version-check --quiet selenium==4.20.0 *> "$env:RUNNER_TEMP/browser-dependencies-private.txt"
           if($LASTEXITCODE -ne 0){throw 'Browser dependency preparation failed'}
@@ -169,11 +169,14 @@ jobs:
           $privateOutput=Join-Path $env:RUNNER_TEMP 'leadya-browser-session-output'
           python postdeploy-browser-smoke.py --input $auth --output $privateOutput --browser chrome --binary $browser --driver $driver *> "$env:RUNNER_TEMP/browser-output-private.txt"
           $smokeExit=$LASTEXITCODE
-          python browser_result_transport.py --directory $privateOutput --output "$env:LEADYA_RESULT_ROOT/build.log"
+          $queueOutput=Join-Path $env:RUNNER_TEMP 'leadya-browser-queue-output'
+          python postdeploy-queue-smoke.py --input $auth --output $queueOutput --binary $browser --driver $driver *> "$env:RUNNER_TEMP/queue-output-private.txt"
+          $queueExit=$LASTEXITCODE
+          python browser_result_transport.py --directory $privateOutput --queue-directory $queueOutput --output "$env:LEADYA_RESULT_ROOT/build.log"
           if($LASTEXITCODE -ne 0){throw 'Browser evidence packaging failed'}
-          $status=if($smokeExit -eq 0){'BROWSER_SMOKE_PASS'}else{'BROWSER_SMOKE_FAIL'}
+          $status=if($smokeExit -eq 0 -and $queueExit -eq 0){'BROWSER_SMOKE_PASS'}else{'BROWSER_SMOKE_FAIL'}
           @{status=$status;purpose='post-deploy browser verification';publication_ready=$false} | ConvertTo-Json | Set-Content "$env:LEADYA_RESULT_ROOT/build-status.json"
-          if($smokeExit -ne 0){throw 'Authenticated browser smoke failed'}
+          if($smokeExit -ne 0 -or $queueExit -ne 0){throw 'Authenticated browser smoke failed'}
       - name: Release only this runner admission
         if: always()
         shell: pwsh
