@@ -73,6 +73,14 @@ to bypass them. Those tests remain outside this runner's selected scope.
 Frontend dependencies use `npm ci --ignore-scripts` from the authenticated lockfile
 in SpringAppFrontend/src/test/js. Selected Node tests run with concurrency one.
 JUnit and TAP evidence must be nonempty and contain zero skips in GREEN.
+Bounded RED and each GREEN JUnit report set is preserved inside encrypted results
+before its evidence guard runs, including refusals. Execution status records the
+current stage and becomes FAILED with a closed guard code on handled failure; assertions
+and report contents never appear in public workflow output.
+An external native-job timeout or forced termination can prevent Python from
+writing its final state. A leftover RUNNING state or a failed/incomplete workflow
+is never PASS; acceptance requires the authenticated final CAUSAL_RED_GREEN_PASS
+evidence and successful workflow, not the absence of a FAILED field.
 
 ## Process and evidence custody
 

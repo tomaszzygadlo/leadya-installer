@@ -172,6 +172,29 @@ class ProtocolTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'TEST_REPORT_LIMIT'):
             p.test_cases(reports)
 
+    def test_refused_red_or_green_evidence_is_preserved_before_guard_failure(self):
+        from run_private_units import preserved_evaluation
+        reports = self.reports('<testcase classname="short.Case" name="fails"><failure type="org.opentest4j.AssertionFailedError" message="expected blocked"/></testcase>')
+        red = {'red': {'class': 'full.sample.Case', 'method': 'fails', 'failure_contains': 'expected blocked'}}
+        destination = self.root / 'preserved-red'
+        with self.assertRaisesRegex(ValueError, 'RED_WRONG_FAILURE'):
+            preserved_evaluation(reports, destination, p.evaluate_red, red, 1)
+        self.assertEqual((reports / 'TEST-sample.xml').read_bytes(), (destination / 'TEST-sample.xml').read_bytes())
+        destination = self.root / 'preserved-green'
+        with self.assertRaises(ValueError):
+            preserved_evaluation(reports, destination, p.evaluate_green, ['full.sample.Case'], 0)
+        self.assertTrue((destination / 'TEST-sample.xml').is_file())
+
+    def test_failed_status_preserves_stage_and_only_a_closed_guard_reason(self):
+        from run_private_units import update_status, closed_error_code
+        from unittest.mock import patch
+        with patch.dict(os.environ, {'DEVUNIT_RESULT_ROOT': str(self.root)}):
+            update_status(status='RUNNING', stage='red-evidence')
+            update_status(status='FAILED', error_code=closed_error_code(ValueError('RED_WRONG_FAILURE')))
+            status = json.loads((self.root / 'unit-status.json').read_text())
+        self.assertEqual({'status':'FAILED','stage':'red-evidence','error_code':'RED_WRONG_FAILURE'},status)
+        self.assertEqual('ValueError',closed_error_code(ValueError('private source or account text: secret')))
+
     def test_workflow_has_no_browser_auth_and_uploads_only_cipher(self):
         workflow = (Path(__file__).parent / '.github/workflows/build.yml').read_text()
         self.assertNotIn('BROWSER_AUTH', workflow)

@@ -6,7 +6,43 @@ import shutil
 import subprocess
 import sys
 import time
+import re
 import private_unit_ci as protocol
+
+
+def update_status(**changes):
+    root = os.environ.get('DEVUNIT_RESULT_ROOT')
+    if root is None:
+        return
+    path = Path(root) / 'unit-status.json'
+    previous = json.loads(path.read_text()) if path.is_file() else {}
+    previous.update(changes)
+    path.write_text(json.dumps(previous, indent=2), encoding='utf-8')
+
+
+def closed_error_code(error):
+    text = str(error)
+    return text if type(error) is ValueError and re.fullmatch(r'[A-Z][A-Z0-9_-]{1,127}', text) else type(error).__name__
+
+
+def preserved_evaluation(reports, destination, evaluator, *arguments):
+    # Evidence must survive a guard refusal (wrong class, skip or malformed report).
+    if reports.is_dir():
+        protocol.ordinary(reports)
+        files = sorted([*reports.glob('TEST-*.xml'), *reports.glob('*.txt')])
+        protocol.need(len(files) <= 1000, 'REPORT_PRESERVATION_COUNT')
+        destination.mkdir()
+        total = 0
+        for path in files:
+            protocol.ordinary(path)
+            size = path.stat().st_size
+            total += size
+            protocol.need(size <= 8 * 1024 * 1024 and total <= 64 * 1024 * 1024, 'REPORT_PRESERVATION_LIMIT')
+            with path.open('rb') as incoming, (destination / path.name).open('xb') as outgoing:
+                raw = incoming.read(8 * 1024 * 1024 + 1)
+                protocol.need(len(raw) == size, 'REPORT_CHANGED_DURING_PRESERVATION')
+                outgoing.write(raw)
+    return evaluator(reports, *arguments)
 
 
 def cmd_line(command):
@@ -33,6 +69,7 @@ def execute(arguments, cwd, log, timeout=1200):
         while child.poll() is None:
             if time.monotonic() > deadline or log.stat().st_size > 32 * 1024 * 1024:
                 # Exit without releasing admission: the outer job terminates and verifies all children.
+                update_status(status='FAILED', error_code='OWNED_COMMAND_TIMEOUT_OR_LOG_LIMIT')
                 os._exit(90)
             time.sleep(.1)
         protocol.need(log.stat().st_size <= 32 * 1024 * 1024, 'LOG_LIMIT')
@@ -40,6 +77,7 @@ def execute(arguments, cwd, log, timeout=1200):
 
 
 def main():
+    update_status(status='RUNNING', stage='prepare')
     protocol.need(os.name == 'nt', 'WINDOWS_ONLY')
     source = Path(os.environ['DEVUNIT_SOURCE_ROOT']).resolve()
     result = Path(os.environ['DEVUNIT_RESULT_ROOT']).resolve()
@@ -63,6 +101,7 @@ def main():
     def mvn(args, label, expect_success=True):
         nonlocal counter
         counter += 1
+        update_status(stage=label)
         # cmd's syntax is closed: every component is validated and no shell expansion is accepted.
         command = maven_command(maven, source.parent / 'm2', args)
         log = result / f'{counter:02d}-{label}.log'
@@ -81,29 +120,38 @@ def main():
     protocol.need(not reports.exists(), 'STALE_RED_REPORTS')
     code = mvn(['-f', red['module'] + '/pom.xml', '-Dtest=' + red['class'] + '#' + red['method'],
                 '-Dsurefire.rerunFailingTestsCount=0', '-DfailIfNoTests=true', 'test'], 'red-test', False)
-    evidence['red'] = protocol.evaluate_red(reports, plan, code)
-    shutil.copytree(reports, result / 'red-reports')
+    update_status(stage='red-evidence')
+    evidence['red'] = preserved_evaluation(reports, result / 'red-reports', protocol.evaluate_red, plan, code)
+    update_status(red=evidence['red'])
     # No patch runs unless the exact regression reached the expected failing assertion.
+    update_status(stage='apply-green')
     protocol.apply_green(source, control, os.environ['DEVUNIT_RED_TREE'], os.environ['DEVUNIT_GREEN_TREE'])
     mvn(compile_args, 'green-compile')
     for suite in plan['green']:
         reports = source / suite['module'] / 'target' / 'surefire-reports'
         protocol.need(not reports.exists(), 'STALE_GREEN_REPORTS')
         code = mvn(['-f', suite['module'] + '/pom.xml', '-Dtest=' + ','.join(suite['tests']),
-                    '-Dsurefire.rerunFailingTestsCount=0', '-DfailIfNoTests=true', 'test'], 'green-' + suite['module'])
-        summary = protocol.evaluate_green(reports, suite['tests'], code, red if suite['module'] == red['module'] else None)
+                    '-Dsurefire.rerunFailingTestsCount=0', '-DfailIfNoTests=true', 'test'], 'green-' + suite['module'], False)
+        update_status(stage='green-evidence-' + suite['module'])
+        summary = preserved_evaluation(reports, result / ('green-' + suite['module'] + '-reports'), protocol.evaluate_green,
+                                      suite['tests'], code, red if suite['module'] == red['module'] else None)
         evidence['green'].append({'module': suite['module'], **summary})
-        shutil.copytree(reports, result / ('green-' + suite['module'] + '-reports'))
+        update_status(green=evidence['green'])
     node_root = source / 'SpringAppFrontend/src/test/js'
+    update_status(stage='npm-ci')
     protocol.need((node_root / 'package-lock.json').is_file(), 'NODE_LOCK_UNAVAILABLE')
     code = execute(cmd_line([npm, 'ci', '--ignore-scripts', '--no-audit', '--no-fund']), node_root, result / 'npm-ci.log')
     protocol.need(code == 0, 'NPM_CI_FAILED')
     for index, name in enumerate(plan['node']):
+        update_status(stage='node-' + str(index))
         log = result / f'node-{index}.log'
         code = execute([node, '--test', '--test-concurrency=1', name], source, log)
         evidence['node'].append({'path': name, **protocol.evaluate_node(log, code)})
+        update_status(node=evidence['node'])
+    update_status(stage='final-source-verification')
     protocol.verify_files(source, protocol.manifest(protocol.load_json(control / 'green-manifest.json'), os.environ['DEVUNIT_GREEN_TREE']), generated=True)
     evidence['status'] = 'CAUSAL_RED_GREEN_PASS'
+    evidence['stage'] = 'complete'
     (result / 'unit-status.json').write_text(json.dumps(evidence, indent=2))
 
 
@@ -112,4 +160,6 @@ if __name__ == '__main__':
         main()
     except Exception as error:
         # Native transport captures even this fixed diagnostic privately.
-        raise SystemExit('PRIVATE_UNIT_EXECUTION_FAILED:' + type(error).__name__)
+        code = closed_error_code(error)
+        update_status(status='FAILED', error_code=code)
+        raise SystemExit('PRIVATE_UNIT_EXECUTION_FAILED:' + code)
