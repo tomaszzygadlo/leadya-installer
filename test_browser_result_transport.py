@@ -7,6 +7,14 @@ from browser_result_transport import collect
 
 
 class TransportBoundaryTests(unittest.TestCase):
+    def test_real_landing_tab_screenshot_name_is_supported(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.fixture(root)
+            (root / 'landing_tab.png').write_bytes(b'\x89PNG\r\n\x1a\nfixture')
+            result = collect(root)
+            self.assertEqual('landing_tab.png', result['screenshots'][0]['filename'])
+
     def fixture(self, root, status='PASS'):
         (root / 'result.json').write_text(json.dumps(dict(kind='automated-selenium-e2e', version='0.12.4.0', status=status)))
 

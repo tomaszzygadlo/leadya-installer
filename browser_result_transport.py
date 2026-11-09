@@ -29,7 +29,7 @@ def collect(directory, kind='automated-selenium-e2e'):
             results = json.loads(raw)
             if results.get('kind') != kind or results.get('version') != '0.12.4.0':
                 raise ValueError('Wrong browser result purpose')
-        elif re.fullmatch(r'[a-z0-9-]{1,80}\.png', path.name) and raw.startswith(b'\x89PNG\r\n\x1a\n'):
+        elif re.fullmatch(r'[a-z0-9_-]{1,80}\.png', path.name) and raw.startswith(b'\x89PNG\r\n\x1a\n'):
             screenshots.append(dict(filename=path.name, bytes=len(raw), sha256=hashlib.sha256(raw).hexdigest(), png_base64=base64.b64encode(raw).decode()))
         else:
             raise ValueError('Unexpected evidence filename/type')
