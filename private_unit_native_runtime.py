@@ -7,6 +7,7 @@ import private_unit_ci as p
 
 ARCHIVE='docker/botserver/OpenJDK17U-jre_x64_windows_hotspot_17.0.9_9.zip'
 PREFIX='jdk-17.0.9+9-jre/'
+MAX_MEMBER=96*1024**2
 
 
 def extract(archive, destination):
@@ -32,7 +33,7 @@ def extract(archive, destination):
                 target.mkdir(parents=True,exist_ok=True)
                 continue
             expanded+=item.file_size
-            p.need(item.file_size <= 64*1024**2 and expanded <= 256*1024**2, 'NATIVE_RUNTIME_EXPANSION')
+            p.need(item.file_size <= MAX_MEMBER and expanded <= 256*1024**2, 'NATIVE_RUNTIME_EXPANSION')
             target.parent.mkdir(parents=True,exist_ok=True)
             with incoming.open(item) as source, target.open('xb') as output:
                 copied=0

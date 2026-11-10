@@ -3,6 +3,7 @@ from pathlib import Path
 import tempfile
 import unittest
 import zipfile
+from unittest.mock import patch
 import private_unit_native_runtime as n
 import run_private_units as r
 
@@ -32,6 +33,28 @@ class NativeRuntimeGuards(unittest.TestCase):
             with self.subTest(names=names),self.assertRaises(ValueError):
                 n.extract(self.archive(names),self.root/('jre'+str(index)))
         self.assertFalse((self.root/'outside').exists())
+
+    def test_real_shipping_sized_module_is_streamed_within_the_bounded_archive(self):
+        # The real pinned JRE lib/modules is82,880,553bytes; the former64MiB
+        # per-member limit would refuse it before any application tests.
+        archive=self.root/'shipping-sized.zip'
+        with zipfile.ZipFile(archive,'w',compression=zipfile.ZIP_DEFLATED) as output:
+            with output.open(n.PREFIX+'lib/modules','w') as stream:
+                for _ in range(1280):stream.write(b'0'*65536)
+        n.extract(archive,self.root/'large-jre')
+        self.assertEqual(80*1024**2,(self.root/'large-jre/lib/modules').stat().st_size)
+
+    def test_oversized_declared_member_is_refused_before_its_body_is_opened(self):
+        archive=self.archive([n.PREFIX+'lib/modules'])
+        original=zipfile.ZipFile
+        def metadata(*args,**kwargs):
+            incoming=original(*args,**kwargs)
+            incoming.filelist[0].file_size=n.MAX_MEMBER+1
+            return incoming
+        with patch.object(n.zipfile,'ZipFile',side_effect=metadata), \
+             self.assertRaisesRegex(ValueError,'NATIVE_RUNTIME_EXPANSION'):
+            n.extract(archive,self.root/'too-large')
+        self.assertFalse((self.root/'too-large/lib/modules').exists())
 
     def test_native_maven_option_and_actual_xml_jre_must_match(self):
         java=self.root/'jre/bin/java.exe'
