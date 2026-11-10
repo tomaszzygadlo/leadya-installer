@@ -53,6 +53,13 @@ class ReportGuards(unittest.TestCase):
         path=self.reports/'TEST-example.First.xml';path.write_text('<!DOCTYPE testsuite [<!ENTITY x "alpha">]><testsuite name="example.First" tests="1"><testcase classname="example.First" name="&x;"/></testsuite>')
         self.assertRaises(ValueError,self.evaluate);self.assertTrue((self.root/'result/db-reports'/path.name).exists())
 
+class TestGroupGuards(unittest.TestCase):
+    def test_safe_primary_group_is_kept(self):self.assertEqual(w.safe_test_gid(1001,121,65534),1001)
+    def test_docker_primary_group_uses_nogroup(self):self.assertEqual(w.safe_test_gid(121,121,65534),65534)
+    def test_root_fallback_is_refused(self):self.assertRaises(ValueError,w.safe_test_gid,121,121,0)
+    def test_docker_fallback_is_refused(self):self.assertRaises(ValueError,w.safe_test_gid,121,121,121)
+    def test_root_primary_group_uses_nogroup(self):self.assertEqual(w.safe_test_gid(0,121,65534),65534)
+
 class CaseContractGuards(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory();self.source=Path(self.tmp.name);self.path=self.source/w.CASE_PATH;self.path.parent.mkdir(parents=True)

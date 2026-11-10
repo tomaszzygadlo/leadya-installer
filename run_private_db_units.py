@@ -71,6 +71,12 @@ def state(name):
 
 def owner_check(spec):need(admission.alive(spec['ownerProcess']),'OWNER_ENDED')
 
+def safe_test_gid(runner_gid,docker_gid,fallback_gid):
+    need(all(type(value) is int and value>=0 for value in (runner_gid,docker_gid,fallback_gid)),'INVALID_GROUP_ID')
+    selected=fallback_gid if runner_gid in (0,docker_gid) else runner_gid
+    need(selected>0 and selected!=docker_gid,'UNSAFE_TEST_GROUP')
+    return selected
+
 def bounded(arguments,cwd,log,environment,owner=None,seconds=900,run_as=None):
     total=0;deadline=time.monotonic()+seconds
     if run_as is not None:
@@ -114,14 +120,20 @@ def prepare(input_directory,checkout):
     nonce=uuid.uuid4().hex[:24];root=Path('/var/tmp')/('root-ci-'+nonce);root.mkdir(mode=0o700)
     result=root/'result';result.mkdir(mode=0o700)
     _ACTIVE_JOB_ROOT=root
-    uid=int(os.environ['SUDO_UID']);gid=int(os.environ['SUDO_GID']);need(uid>0 and gid>0,'RUNNER_IDENTITY_REQUIRED')
+    uid=int(os.environ['SUDO_UID']);runner_gid=int(os.environ['SUDO_GID']);need(uid>0 and runner_gid>=0,'RUNNER_IDENTITY_REQUIRED')
+    docker_gid=Path('/var/run/docker.sock').stat().st_gid
+    fallback_gid=runner_gid
+    if runner_gid in (0,docker_gid):
+        import grp
+        fallback_gid=grp.getgrnam('nogroup').gr_gid
+    gid=safe_test_gid(runner_gid,docker_gid,fallback_gid)
     workspace=Path(os.environ['RUNNER_TEMP'])/('db-private-workspace-'+nonce)
     protocol.ordinary(workspace.parent);workspace.mkdir(mode=0o700)
     tools={}
     for name in ('run_private_db_units.py','private_linux_admission.py','private_unit_ci.py','private_unit_crypto.ps1','release_source_ci.py'):
         path=checkout/name;protocol.ordinary(path);tools[name]=path.read_bytes()
     job=dict(nonce=nonce,identity=fields,source=str(workspace/'source'),control=str(root/'input/control'),
-        bootstrap=str(root/'bootstrap/source'),result=str(result),workspace=str(workspace),testUid=uid,testGid=gid,
+        bootstrap=str(root/'bootstrap/source'),result=str(result),workspace=str(workspace),testUid=uid,testGid=gid,runnerGid=runner_gid,
         toolSha256={name:sha(raw) for name,raw in tools.items()})
     json_new(root/'job.json',job)
     # Publish the safe location early so failed preparations can still be sealed.
@@ -500,7 +512,7 @@ def seal(root):
     need(bounded(arguments,root,root/'seal.log',dict(os.environ),seconds=60)==0,'RESULT_SEAL_FAILED')
     # Only ciphertext and its public authenticated envelope become runner-readable.
     uid=int(os.environ['SUDO_UID']);gid=int(os.environ['SUDO_GID'])
-    need(uid==job['testUid'] and gid==job['testGid'],'ARTIFACT_RUNNER_IDENTITY_CHANGED')
+    need(uid==job['testUid'] and gid==job['runnerGid'],'ARTIFACT_RUNNER_IDENTITY_CHANGED')
     destination=Path(os.environ['RUNNER_TEMP'])/'db-private-sealed';protocol.ordinary(destination.parent)
     destination.mkdir(mode=0o700)
     for name in ('result.cipher','result-envelope.json'):
