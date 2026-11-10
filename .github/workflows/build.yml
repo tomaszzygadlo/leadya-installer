@@ -1,5 +1,5 @@
-name: Private Windows unit RED GREEN
-run-name: Authenticated private unit evidence
+name: Private real database qualification
+run-name: Authenticated private database evidence
 on:
   workflow_dispatch:
     inputs:
@@ -8,11 +8,11 @@ on:
         required: true
         type: string
       red_tree:
-        description: Normal staged RED Git tree
+        description: Authenticated baseline Git tree
         required: true
         type: string
       green_tree:
-        description: Prospective GREEN Git tree
+        description: Prospective qualified Git tree
         required: true
         type: string
       source_zip_sha256:
@@ -22,16 +22,15 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: production-finance-vps-92c6e4b805a7
+  group: production-finance-private-db-b53e904d17a6
   cancel-in-progress: false
 jobs:
   unit:
-    runs-on: windows-latest
-    timeout-minutes: 70
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
     env:
-      LEADYA_SOURCE_COMMIT: '709c62ba7c1dc27588b1608ef1fc3fed5ec2c232'
-      LEADYA_SOURCE_TREE: '55e52f37023f971a89ae32fb876a369fe379da15'
-      LEADYA_ARCHIVE_SHA256: '1e7b512be3f640563cd3a08854793dfa01da3f5213ad13cef6bc6c665e51d0c9'
+      CI_DB_EPHEMERAL_VM: ubuntu-24.04
+      DEVUNIT_BASE_COMMIT: '28d11cfb5f6bf3c1cd6ff4d3741754977935148b'
       DEVUNIT_RED_TREE: ${{ inputs.red_tree }}
       DEVUNIT_GREEN_TREE: ${{ inputs.green_tree }}
       DEVUNIT_ZIP_SHA256: ${{ inputs.source_zip_sha256 }}
@@ -44,18 +43,21 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version: '3.12'
-      - name: Validate immutable identities and initialize private paths
-        shell: pwsh
+      - name: Validate immutable input identities
+        shell: bash
         run: |
-          $ErrorActionPreference='Stop'
-          if($env:RUNNER_OS -ne 'Windows' -or $env:RUNNER_ARCH -ne 'X64'){throw 'Expected Windows X64'}
-          foreach($name in @('DEVUNIT_RED_TREE','DEVUNIT_GREEN_TREE','DEVUNIT_INPUT_REF')){if([Environment]::GetEnvironmentVariable($name) -cnotmatch '^[0-9a-f]{40}$'){throw 'Invalid tree or input identity'}}
-          if($env:DEVUNIT_ZIP_SHA256 -cnotmatch '^[0-9a-f]{64}$'){throw 'Invalid source digest'}
-          $paths=@{DEVUNIT_RESULT_ROOT="$env:RUNNER_TEMP/unit-private-result";DEVUNIT_SOURCE_ROOT="$env:RUNNER_TEMP/unit-private-input/source";DEVUNIT_BOOTSTRAP_ROOT="$env:RUNNER_TEMP/unit-gate-bootstrap/source"}
-          foreach($name in $paths.Keys){"$name=$($paths[$name])" | Out-File $env:GITHUB_ENV -Append -Encoding utf8}
-          New-Item -ItemType Directory -Path $paths.DEVUNIT_RESULT_ROOT | Out-Null
-          @{status='PREPARATION_PENDING';runtime_tests='NOT_RUN'} | ConvertTo-Json | Set-Content "$($paths.DEVUNIT_RESULT_ROOT)/unit-status.json"
-          @{workflow_commit=$env:GITHUB_SHA;run_id=$env:GITHUB_RUN_ID;run_attempt=$env:GITHUB_RUN_ATTEMPT;red_tree=$env:DEVUNIT_RED_TREE;prospective_green_tree=$env:DEVUNIT_GREEN_TREE;source_zip_sha256=$env:DEVUNIT_ZIP_SHA256;runner_os=$env:RUNNER_OS;runner_arch=$env:RUNNER_ARCH} | ConvertTo-Json | Set-Content "$($paths.DEVUNIT_RESULT_ROOT)/identity.json"
+          set -euo pipefail
+          python3 - <<'PY'
+          import os,re
+          assert os.environ['RUNNER_OS']=='Linux' and os.environ['RUNNER_ENVIRONMENT']=='github-hosted'
+          for name in ('GITHUB_SHA','DEVUNIT_BASE_COMMIT','DEVUNIT_RED_TREE','DEVUNIT_GREEN_TREE','DEVUNIT_INPUT_REF'):
+              assert re.fullmatch('[a-f0-9]{40}',os.environ[name])
+          assert re.fullmatch('[a-f0-9]{64}',os.environ['DEVUNIT_ZIP_SHA256'])
+          print('Immutable identities accepted; private tests have not run.')
+          PY
+      - name: Check generic worker guards without application data or services
+        shell: bash
+        run: python3 -m unittest -v test_private_db_units.py test_private_linux_admission.py
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: '${{ inputs.input_ref }}'
@@ -67,76 +69,42 @@ jobs:
             bootstrap.cipher
             bootstrap-envelope.json
           sparse-checkout-cone-mode: false
-      - name: Materialize original small canonical admission checkout
-        shell: pwsh
+      - name: Authenticate source and original resource policy
+        shell: bash
         env:
-          DEVUNIT_BOOTSTRAP_KEY: ${{ secrets.LEADYA_FINANCE_VPS_F6B24D981A70_BOOTSTRAP_KEY }}
+          DEVUNIT_BOOTSTRAP_KEY: ${{ secrets.LEADYA_FINANCE_DB_B53E904D17A6_BOOTSTRAP_KEY }}
+          DEVUNIT_SOURCE_KEY: ${{ secrets.LEADYA_FINANCE_DB_B53E904D17A6_SOURCE_KEY }}
         run: |
-          $ErrorActionPreference='Stop'
-          ./private_unit_crypto.ps1 -Action bootstrap -InputDirectory ./encrypted-input -OutputPath "$env:RUNNER_TEMP/unit-bootstrap-private.tar.xz" -RedTree $env:DEVUNIT_RED_TREE -GreenTree $env:DEVUNIT_GREEN_TREE -ZipSha256 $env:DEVUNIT_ZIP_SHA256
-          ./Invoke-PrivateUnitPython.ps1 -Script ./release_source_ci.py -ScriptArguments @('materialize','--archive',"$env:RUNNER_TEMP/unit-bootstrap-private.tar.xz",'--archive-sha256',$env:LEADYA_ARCHIVE_SHA256,'--commit',$env:LEADYA_SOURCE_COMMIT,'--tree',$env:LEADYA_SOURCE_TREE,'--destination',"$env:RUNNER_TEMP/unit-gate-bootstrap") -Log "$env:DEVUNIT_RESULT_ROOT/bootstrap.log"
-          if($LASTEXITCODE -ne 0){throw 'Canonical checkout materialization failed'}
-      - name: Acquire and check genuine heavy Windows admission
-        shell: pwsh
+          set -euo pipefail
+          sudo --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,RUNNER_OS,RUNNER_ARCH,CI_DB_EPHEMERAL_VM,GITHUB_SHA,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,GITHUB_ENV,RUNNER_TEMP,DEVUNIT_RED_TREE,DEVUNIT_GREEN_TREE,DEVUNIT_ZIP_SHA256,DEVUNIT_INPUT_REF,DEVUNIT_BASE_COMMIT,DEVUNIT_BOOTSTRAP_KEY,DEVUNIT_SOURCE_KEY python3 ./run_private_db_units.py prepare --input-directory "$PWD/encrypted-input" --checkout "$PWD"
+      - name: Admit bounded Maven and database workload on this dedicated VM
+        shell: bash
         run: |
-          $ErrorActionPreference='Stop'
-          @('LEADYA_MAIN_BRANCH=hotfix/0.12.3','LEADYA_WORK_ENVIRONMENT=hotfix','LEADYA_DEV_BRANCH=dev/0.12.1') | Set-Content "$env:DEVUNIT_BOOTSTRAP_ROOT/.env" -Encoding utf8
-          $env:PSModulePath="$env:SystemRoot/System32/WindowsPowerShell/v1.0/Modules"
-          $gate="$env:DEVUNIT_BOOTSTRAP_ROOT/.agents/skills/leadya-project-manager/scripts/host_gate.py"
-          $receipt="$env:RUNNER_TEMP/unit-admission-private.json"
-          ./Invoke-PrivateUnitPython.ps1 -Script $gate -ScriptArguments @('acquire','--heavy','--key','private-unit-ci','--checkout',$env:DEVUNIT_BOOTSTRAP_ROOT,'--memory-gib','4','--disk-gib','6','--receipt-out',$receipt) -Log "$env:DEVUNIT_RESULT_ROOT/admission-acquire.log"
-          if($LASTEXITCODE -ne 0){throw 'Canonical heavy admission refused'}
-          $a=(Get-Content -LiteralPath $receipt -Raw | ConvertFrom-Json).admission
-          ./Invoke-PrivateUnitPython.ps1 -Script $gate -ScriptArguments @('check','--key',$a.key,'--token',$a.token,'--checkout',$env:DEVUNIT_BOOTSTRAP_ROOT,'--heavy','--memory-gib','4','--disk-gib','6') -Log "$env:DEVUNIT_RESULT_ROOT/admission-check.json"
-          if($LASTEXITCODE -ne 0){throw 'Canonical heavy check refused'}
-      - name: Authenticate and decrypt private source
-        shell: pwsh
-        env:
-          DEVUNIT_SOURCE_KEY: ${{ secrets.LEADYA_FINANCE_VPS_F6B24D981A70_SOURCE_KEY }}
-        run: |
-          $ErrorActionPreference='Stop'
-          ./private_unit_crypto.ps1 -Action decrypt -InputDirectory ./encrypted-input -OutputPath "$env:RUNNER_TEMP/unit-source-private.zip" -RedTree $env:DEVUNIT_RED_TREE -GreenTree $env:DEVUNIT_GREEN_TREE -ZipSha256 $env:DEVUNIT_ZIP_SHA256
-      - name: Verify full Git trees and materialize closed source subset
-        shell: pwsh
-        run: |
-          $ErrorActionPreference='Stop'
-          ./Invoke-PrivateUnitPython.ps1 -Script ./private_unit_ci.py -ScriptArguments @('materialize','--archive',"$env:RUNNER_TEMP/unit-source-private.zip",'--destination',"$env:RUNNER_TEMP/unit-private-input",'--red-tree',$env:DEVUNIT_RED_TREE,'--green-tree',$env:DEVUNIT_GREEN_TREE,'--zip-sha256',$env:DEVUNIT_ZIP_SHA256,'--provenance',"$env:DEVUNIT_RESULT_ROOT/input-provenance.json") -Log "$env:DEVUNIT_RESULT_ROOT/materialize.log"
-          if($LASTEXITCODE -ne 0){throw 'Authenticated source closure refused'}
-      - name: Compile and execute causal RED then verified GREEN
-        shell: pwsh
-        run: |
-          $ErrorActionPreference='Stop'
-          $env:JAVA_HOME=$env:JAVA_HOME_17_X64
-          if(-not(Test-Path -LiteralPath "$env:JAVA_HOME/bin/java.exe")){throw 'Image JDK17 unavailable'}
-          [IO.File]::WriteAllText("$env:RUNNER_TEMP/unit-execution-started",'started')
-          ./Invoke-PrivateUnitPython.ps1 -Script ./run_private_units.py -Log "$env:DEVUNIT_RESULT_ROOT/execution.log" -Seconds 3300 -CleanupMarker "$env:RUNNER_TEMP/unit-execution-stopped"
-          if($LASTEXITCODE -ne 0){throw 'Private causal unit execution failed'}
-      - name: Release only own admission after verified child cleanup
+          set -euo pipefail
+          sudo --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,RUNNER_OS,RUNNER_ARCH,CI_DB_EPHEMERAL_VM,GITHUB_SHA,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,RUNNER_TEMP,DEVUNIT_RED_TREE,DEVUNIT_GREEN_TREE,DEVUNIT_ZIP_SHA256,DEVUNIT_INPUT_REF,DEVUNIT_BASE_COMMIT,JAVA_HOME_17_X64 python3 "$DBJOB_ROOT/run_private_db_units.py" execute --job-root "$DBJOB_ROOT"
+      - name: Verify exact owned workload closure
         if: always()
-        shell: pwsh
+        shell: bash
         run: |
-          $ErrorActionPreference='Stop'
-          $env:PSModulePath="$env:SystemRoot/System32/WindowsPowerShell/v1.0/Modules"
-          if((Test-Path -LiteralPath "$env:RUNNER_TEMP/unit-execution-started") -and -not(Test-Path -LiteralPath "$env:RUNNER_TEMP/unit-execution-stopped")){throw 'No proof that owned unit descendants stopped; retain lease'}
-          $receipt="$env:RUNNER_TEMP/unit-admission-private.json"
-          if(Test-Path -LiteralPath $receipt){
-            ./Invoke-PrivateUnitPython.ps1 -Script "$env:DEVUNIT_BOOTSTRAP_ROOT/.agents/skills/leadya-project-manager/scripts/host_gate.py" -ScriptArguments @('release','--receipt-file',$receipt) -Log "$env:DEVUNIT_RESULT_ROOT/release.json"
-            if($LASTEXITCODE -ne 0){throw 'Own admission release failed'}
-          }
-      - name: Encrypt private unit evidence
+          set -euo pipefail
+          if test -z "${DBJOB_ROOT:-}"; then echo 'No workload workspace was initialized.'; exit 0; fi
+          sudo --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,RUNNER_OS,RUNNER_ARCH,CI_DB_EPHEMERAL_VM,GITHUB_SHA,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,RUNNER_TEMP,DEVUNIT_RED_TREE,DEVUNIT_GREEN_TREE,DEVUNIT_ZIP_SHA256,DEVUNIT_INPUT_REF,DEVUNIT_BASE_COMMIT python3 "$DBJOB_ROOT/run_private_db_units.py" recover --job-root "$DBJOB_ROOT"
+      - name: Encrypt private results and full fixture custody evidence
         if: always()
-        shell: pwsh
+        shell: bash
         env:
-          LEADYA_RESULT_KEY: ${{ secrets.LEADYA_FINANCE_VPS_F6B24D981A70_RESULT_KEY }}
+          LEADYA_RESULT_KEY: ${{ secrets.LEADYA_FINANCE_DB_B53E904D17A6_RESULT_KEY }}
         run: |
-          ./private_unit_crypto.ps1 -Action seal -InputDirectory $env:DEVUNIT_RESULT_ROOT -OutputPath "$env:RUNNER_TEMP/unit-private-sealed" -RedTree $env:DEVUNIT_RED_TREE -GreenTree $env:DEVUNIT_GREEN_TREE -ZipSha256 $env:DEVUNIT_ZIP_SHA256
+          set -euo pipefail
+          test -n "${DBJOB_ROOT:-}"
+          sudo --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,RUNNER_OS,RUNNER_ARCH,CI_DB_EPHEMERAL_VM,GITHUB_SHA,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,RUNNER_TEMP,DEVUNIT_RED_TREE,DEVUNIT_GREEN_TREE,DEVUNIT_ZIP_SHA256,DEVUNIT_INPUT_REF,DEVUNIT_BASE_COMMIT,LEADYA_RESULT_KEY python3 "$DBJOB_ROOT/run_private_db_units.py" seal --job-root "$DBJOB_ROOT"
       - name: Preserve ciphertext and authenticated envelope only
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: private-unit-evidence
           path: |
-            ${{ runner.temp }}/unit-private-sealed/result.cipher
-            ${{ runner.temp }}/unit-private-sealed/result-envelope.json
+            ${{ runner.temp }}/db-private-sealed/result.cipher
+            ${{ runner.temp }}/db-private-sealed/result-envelope.json
           if-no-files-found: error
           retention-days: 7
