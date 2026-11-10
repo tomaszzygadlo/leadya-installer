@@ -466,7 +466,16 @@ def execute(root):
     info=json.loads(control(DOCKER+['info','--format','{{json .}}']).stdout)
     need(info['CgroupDriver']=='systemd' and str(info['CgroupVersion'])=='2','DOCKER_SYSTEMD_V2_REQUIRED')
     owner=admission.identity(os.getpid());repository=Path(job['workspace'])/'m2'
-    evidence=admission.assess(Path(job['bootstrap']),[Path(job['source']),Path(info['DockerRootDir']),repository],owner)
+    preview={}
+    binding=dict(nonce=job['nonce'],workflowCommit=job['identity']['GITHUB_SHA'],
+        runId=job['identity']['GITHUB_RUN_ID'],sourceTree=job['identity']['DEVUNIT_GREEN_TREE'])
+    def persist_preflight(snapshot):json_new(root/'result/linux-admission-preflight.json',dict(binding,**snapshot))
+    try:evidence=admission.assess(Path(job['bootstrap']),[Path(job['source']),Path(info['DockerRootDir']),repository],owner,preview,persist_preflight)
+    except Exception as error:
+        preview.update(assessment='REFUSED',errorType=type(error).__name__)
+        raise
+    finally:
+        json_new(root/'result/linux-admission-outcome.json',dict(binding,**preview))
     json_new(root/'result/linux-admission.json',dict(nonce=job['nonce'],workflowCommit=job['identity']['GITHUB_SHA'],
         runId=job['identity']['GITHUB_RUN_ID'],sourceTree=job['identity']['DEVUNIT_GREEN_TREE'],**evidence))
     json_new(root/'slice-intent.json',dict(nonce=job['nonce'],jobSha256=digest(root/'job.json'),

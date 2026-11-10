@@ -10,6 +10,17 @@ CPU, available RAM, source/Docker/Maven filesystems, process generations and
 pre-existing containers. Its 4 GiB RAM / 6 GiB disk budget requires at least
 8 GiB free disk under that policy. This is not a Windows admission ledger.
 
+Diagnostic run `42886461626` identified two operating-system services:
+Ubuntu's [networkd-dispatcher](https://packages.ubuntu.com/en/noble/networkd-dispatcher)
+and Microsoft's [Azure Linux Agent daemon](https://github.com/Azure/WALinuxAgent).
+Only their exact witnessed interpreter/script hashes, root identities, parent PID1,
+service cgroups and current systemd MainPID can identify these platform processes.
+Changed or unknown processes, including the agent's unclassified child, still count.
+These exceptions apply only to the fresh dedicated hosted VM and are recorded with
+their actual process generations. They cannot be used for a shared-host admission.
+Preflight measurements and census are persisted before the unchanged policy runs;
+the separate outcome also preserves partial census when an earlier check refuses.
+
 A real transient cgroup bounds Maven and the pinned MariaDB fixture together
 to 4 GiB, two CPU cores and 512 tasks. Maven and its JVM children run without
 root, supplementary groups, Docker access or privilege escalation. A real
