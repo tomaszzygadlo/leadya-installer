@@ -2,6 +2,7 @@
 $ErrorActionPreference = 'Stop'
 $env:PSModulePath = Join-Path $PSHOME 'Modules'
 $source = if (Test-Path -LiteralPath (Join-Path $PSScriptRoot '..\LaunchLocalLeadYa.vbs')) { Join-Path $PSScriptRoot '..' } else { $PSScriptRoot }
+& (Join-Path $PSScriptRoot 'Test-LocalStartupWindow.ps1') -Launcher (Join-Path $source 'LaunchLocalLeadYa.ps1')
 $installer = [IO.File]::ReadAllText((Join-Path $source 'Leadya.nsi'))
 $finish = [regex]::Match($installer, '(?ms)^Function RunInstalledLocalApplication\r?\n.*?^FunctionEnd').Value
 if (-not $finish -or $finish -match '(?i)wscript\.exe|\.vbs' -or
