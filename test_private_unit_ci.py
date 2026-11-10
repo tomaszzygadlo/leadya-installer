@@ -90,18 +90,65 @@ class ProtocolTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'BAD_INVENTORY'):
             p.merkle(inventory * 5)
 
-    def test_checking_program_is_compile_only_and_cannot_select_its_tests(self):
+    def test_checking_program_requires_compile_scope_and_matching_green_regression(self):
         _, _, plan, _, _ = self.fixture()
         plan['compile_modules'].append('CheckingProgram')
         self.assertIn('CheckingProgram', p.spec(plan)['compile_modules'])
         bad = copy.deepcopy(plan)
         bad['red']['module'] = 'CheckingProgram'
-        with self.assertRaisesRegex(ValueError, 'BAD_RED_SPEC'):
+        with self.assertRaisesRegex(ValueError, 'RED_NOT_COVERED_BY_GREEN'):
             p.spec(bad)
         bad = copy.deepcopy(plan)
         bad['green'].append({'module': 'CheckingProgram', 'tests': ['sample.Checking']})
+        self.assertEqual('CheckingProgram', p.spec(bad)['green'][-1]['module'])
+        bad['compile_modules'].remove('CheckingProgram')
         with self.assertRaisesRegex(ValueError, 'BAD_GREEN_MODULE'):
             p.spec(bad)
+
+    def test_version_two_requires_distinct_causal_reds_all_covered_by_green(self):
+        _, _, plan, _, _ = self.fixture()
+        plan['format'] = 'leadya-private-unit-spec/v2'
+        plan['sorter'] = None
+        first = plan['red']
+        second = dict(first, method='secondRegression')
+        plan['red'] = [first, second]
+        self.assertEqual(2, len(p.red_cases(p.spec(plan))))
+        duplicate = copy.deepcopy(plan)
+        duplicate['red'].append(first)
+        with self.assertRaisesRegex(ValueError, 'DUPLICATE_RED_CASE'):
+            p.spec(duplicate)
+        uncovered = copy.deepcopy(plan)
+        uncovered['red'][1]['class'] = 'sample.Unselected'
+        with self.assertRaisesRegex(ValueError, 'RED_NOT_COVERED_BY_GREEN'):
+            p.spec(uncovered)
+
+    def test_version_two_refuses_empty_oversized_and_malformed_red_arrays(self):
+        _, _, original, _, _ = self.fixture()
+        original['format'] = 'leadya-private-unit-spec/v2'
+        original['sorter'] = None
+        for value in ([], original['red'], [dict(original['red'], method='m' + str(n)) for n in range(9)],
+                      [dict(original['red'], module=[])], [dict(original['red'], method=None)]):
+            candidate = copy.deepcopy(original)
+            candidate['red'] = value
+            with self.assertRaisesRegex(ValueError, 'BAD_RED_SPEC'):
+                p.spec(candidate)
+
+    def test_legacy_spec_still_requires_one_red_object(self):
+        _, _, plan, _, _ = self.fixture()
+        self.assertEqual([plan['red']], p.red_cases(p.spec(plan)))
+        plan['red'] = [plan['red']]
+        with self.assertRaisesRegex(ValueError, 'BAD_RED_SPEC'):
+            p.spec(plan)
+
+    def test_sorter_requires_fresh_frontend_compile_before_any_execution(self):
+        _, _, plan, _, _ = self.fixture()
+        plan.update(format='leadya-private-unit-spec/v2', red=[plan['red']],
+                    sorter={'keys': ['user.company.required'],
+                            'translations': 'documentation/plans/fixture/translations.json'})
+        with self.assertRaisesRegex(ValueError, 'SORTER_REQUIRES_FRONTEND_COMPILE'):
+            p.spec(plan)
+        plan['compile_modules'].append('SpringAppFrontend')
+        self.assertEqual(plan, p.spec(plan))
 
     def test_node_scope_is_bounded_at_128_files(self):
         _, _, plan, _, _ = self.fixture()
@@ -200,9 +247,9 @@ class ProtocolTests(unittest.TestCase):
         self.assertNotIn('BROWSER_AUTH', workflow)
         import re
         secrets = re.findall(r'\$\{\{ secrets\.([A-Z0-9_]+) \}\}', workflow)
-        self.assertEqual({'LEADYA_FC4_32A7D9E605BF_BOOTSTRAP_KEY',
-                          'LEADYA_FC4_32A7D9E605BF_SOURCE_KEY',
-                          'LEADYA_FC4_32A7D9E605BF_RESULT_KEY'}, set(secrets))
+        self.assertEqual({'LEADYA_FINANCE_VPS_92C6E4B805A7_BOOTSTRAP_KEY',
+                          'LEADYA_FINANCE_VPS_92C6E4B805A7_SOURCE_KEY',
+                          'LEADYA_FINANCE_VPS_92C6E4B805A7_RESULT_KEY'}, set(secrets))
         self.assertEqual(3, len(secrets))
         self.assertNotIn('B7A46C8D209E', workflow)
         self.assertLess(workflow.index('path: encrypted-input'), workflow.index('Materialize original small canonical'))
@@ -212,7 +259,7 @@ class ProtocolTests(unittest.TestCase):
         self.assertNotIn('unit-private-result', artifact)
         self.assertIn('/result.cipher', artifact)
         self.assertIn('/result-envelope.json', artifact)
-        self.assertIn("'--memory-gib','2','--disk-gib','3'", workflow)
+        self.assertEqual(2, workflow.count("'--memory-gib','4','--disk-gib','6'"))
         self.assertIn('-Log "$env:DEVUNIT_RESULT_ROOT/admission-acquire.log"', workflow)
         self.assertNotIn('-Log "$env:RUNNER_TEMP/unit-acquire-private.log"', workflow)
 

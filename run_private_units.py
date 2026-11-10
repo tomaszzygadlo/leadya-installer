@@ -9,6 +9,8 @@ import time
 import re
 import xml.etree.ElementTree as ET
 import private_unit_ci as protocol
+import private_unit_generator
+import private_unit_native_runtime
 
 
 def update_status(**changes):
@@ -26,7 +28,7 @@ def closed_error_code(error):
     return text if type(error) is ValueError and re.fullmatch(r'[A-Z][A-Z0-9_-]{1,127}', text) else type(error).__name__
 
 
-def preserved_evaluation(reports, destination, evaluator, *arguments, logging_configuration=None):
+def preserved_evaluation(reports, destination, evaluator, *arguments, logging_configuration=None, expected_java=None):
     # Evidence must survive a guard refusal (wrong class, skip or malformed report).
     if reports.is_dir():
         protocol.ordinary(reports)
@@ -51,6 +53,11 @@ def preserved_evaluation(reports, destination, evaluator, *arguments, logging_co
             values = {item.get('name'): item.get('value') for item in root.findall('properties/property')}
             protocol.need(values.get('logback.configurationFile') == str(logging_configuration),
                           'LOGBACK_PROPERTY_NOT_FORWARDED')
+            if expected_java is not None:
+                protocol.need(values.get('java.version')=='17.0.9'
+                              and Path(values.get('java.home','')).resolve()==expected_java.parent.parent.resolve(),
+                              'NATIVE_REPORT_NOT_FROM_SHIPPING_JRE')
+                protocol.need(values.get('leadya.test.smallHeap')=='true', 'NATIVE_HEAP_ASSERTION_NOT_ENABLED')
     return evaluator(reports, *arguments)
 
 
@@ -79,6 +86,16 @@ def write_logback_configuration(path):
     return path.resolve()
 
 
+def retire_owned_red_reports(source, module, reports):
+    protocol.need(module in protocol.MODULES, 'FOREIGN_REPORT_MODULE')
+    protocol.ordinary(source)
+    protocol.ordinary(reports)
+    expected = source.resolve() / module / 'target' / 'surefire-reports'
+    protocol.need(reports.resolve() == expected and source.resolve() in expected.parents,
+                  'REPORT_RETIREMENT_OUTSIDE_SOURCE')
+    shutil.rmtree(reports)
+
+
 def maven_command(maven, repository, arguments, logging_configuration=None):
     # Unit evidence installs dependency JARs into M2, never the POM's deployment-copy Ant targets.
     logging = [] if logging_configuration is None else [
@@ -86,6 +103,24 @@ def maven_command(maven, repository, arguments, logging_configuration=None):
         '-Dlogging.config=' + str(logging_configuration)]
     return [maven, '-B', '-ntp', '-Dstyle.color=never', '-Dmaven.antrun.skip=true',
             '-Dmaven.repo.local=' + str(repository), *logging, *arguments]
+
+
+def module_test_options(module, native_java=None):
+    # This limit belongs only to the downloader's Surefire child, not compilation
+    # or server modules. Its real 80 MiB fixture asserts against maxMemory().
+    if module != 'CheckingProgram':
+        return []
+    return ['-DargLine=-Xmx64m', '-Dleadya.test.smallHeap=true',
+            *(['-Djvm='+str(native_java)] if native_java is not None else [])]
+
+
+def red_report_destination(result, plan, index):
+    return result / ('red-reports' if plan['format'] == 'leadya-private-unit-spec/v1'
+                     else 'red-' + str(index) + '-reports')
+
+
+def red_evidence(plan, completed):
+    return completed[0] if plan['format'] == 'leadya-private-unit-spec/v1' else list(completed)
 
 
 def execute(arguments, cwd, log, timeout=1200):
@@ -126,6 +161,8 @@ def main():
     (result / 'unit-status.json').write_text(json.dumps(evidence, indent=2))
     protocol.need(not (result == source or source in result.parents), 'LOGGING_CONFIG_INSIDE_SOURCE')
     logging_configuration = write_logback_configuration(result / 'unit-logback.xml')
+    native_java = (private_unit_native_runtime.prepare(source, control, result, execute)
+                   if any(suite['module']=='CheckingProgram' for suite in plan['green']) else None)
     counter = 0
 
     def mvn(args, label, expect_success=True):
@@ -145,28 +182,44 @@ def main():
     modules = ','.join(plan['compile_modules'])
     compile_args = ['-pl', modules, '-am', 'clean', 'install', '-DskipTests']
     mvn(compile_args, 'red-compile')
-    red = plan['red']
-    reports = source / red['module'] / 'target' / 'surefire-reports'
-    protocol.need(not reports.exists(), 'STALE_RED_REPORTS')
-    code = mvn(['-f', red['module'] + '/pom.xml', '-Dtest=' + red['class'] + '#' + red['method'],
-                '-Dsurefire.rerunFailingTestsCount=0', '-DfailIfNoTests=true', 'test'], 'red-test', False)
-    update_status(stage='red-evidence')
-    evidence['red'] = preserved_evaluation(reports, result / 'red-reports', protocol.evaluate_red, plan, code,
-                                         logging_configuration=logging_configuration)
-    update_status(red=evidence['red'])
+    reds = protocol.red_cases(plan)
+    completed_reds = []
+    for index, red in enumerate(reds):
+        reports = source / red['module'] / 'target' / 'surefire-reports'
+        protocol.need(not reports.exists(), 'STALE_RED_REPORTS')
+        code = mvn(['-f', red['module'] + '/pom.xml', '-Dtest=' + red['class'] + '#' + red['method'],
+                    *module_test_options(red['module'], native_java),
+                    '-Dsurefire.rerunFailingTestsCount=0', '-DfailIfNoTests=true', 'test'],
+                   'red-test-' + str(index), False)
+        update_status(stage='red-evidence-' + str(index))
+        summary = preserved_evaluation(reports, red_report_destination(result, plan, index),
+                                      protocol.evaluate_red, {'red': red}, code,
+                                      logging_configuration=logging_configuration,
+                                      expected_java=native_java if red['module']=='CheckingProgram' else None)
+        completed_reds.append(dict(red, **summary))
+        evidence['red'] = red_evidence(plan, completed_reds)
+        update_status(red=evidence['red'])
+        # Keep the immutable copied reports; remove only this run's owned report
+        # directory before the next RED in the same module.
+        retire_owned_red_reports(source, red['module'], reports)
     # No patch runs unless the exact regression reached the expected failing assertion.
     update_status(stage='apply-green')
     protocol.apply_green(source, control, os.environ['DEVUNIT_RED_TREE'], os.environ['DEVUNIT_GREEN_TREE'])
+    final_rows, qualified_tree = private_unit_generator.generate(
+        source, control, result, plan, java, execute, os.environ['DEVUNIT_GREEN_TREE'])
+    evidence['qualified_source_tree'] = qualified_tree
     mvn(compile_args, 'green-compile')
     for suite in plan['green']:
         reports = source / suite['module'] / 'target' / 'surefire-reports'
         protocol.need(not reports.exists(), 'STALE_GREEN_REPORTS')
         code = mvn(['-f', suite['module'] + '/pom.xml', '-Dtest=' + ','.join(suite['tests']),
+                    *module_test_options(suite['module'], native_java),
                     '-Dsurefire.rerunFailingTestsCount=0', '-DfailIfNoTests=true', 'test'], 'green-' + suite['module'], False)
         update_status(stage='green-evidence-' + suite['module'])
         summary = preserved_evaluation(reports, result / ('green-' + suite['module'] + '-reports'), protocol.evaluate_green,
-                                      suite['tests'], code, red if suite['module'] == red['module'] else None,
-                                      logging_configuration=logging_configuration)
+                                      suite['tests'], code, [red for red in reds if suite['module'] == red['module']],
+                                      logging_configuration=logging_configuration,
+                                      expected_java=native_java if suite['module']=='CheckingProgram' else None)
         evidence['green'].append({'module': suite['module'], **summary})
         update_status(green=evidence['green'])
     node_root = source / 'SpringAppFrontend/src/test/js'
@@ -181,7 +234,7 @@ def main():
         evidence['node'].append({'path': name, **protocol.evaluate_node(log, code)})
         update_status(node=evidence['node'])
     update_status(stage='final-source-verification')
-    protocol.verify_files(source, protocol.manifest(protocol.load_json(control / 'green-manifest.json'), os.environ['DEVUNIT_GREEN_TREE']), generated=True)
+    protocol.verify_files(source, final_rows, generated=True)
     evidence['status'] = 'CAUSAL_RED_GREEN_PASS'
     evidence['stage'] = 'complete'
     (result / 'unit-status.json').write_text(json.dumps(evidence, indent=2))

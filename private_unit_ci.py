@@ -17,7 +17,7 @@ MAX_FILES = 12000
 MAX_INVENTORY = 50000
 MAX_CONTROL = 32 * 1024 * 1024
 MODULES = {"BaseModule", "SpringAppBase", "SpringAppBackend", "SpringAppFrontend",
-           "FacebookBot", "InstagramBot", "TelegramBot", "task_parameters", "UnixClient"}
+           "FacebookBot", "InstagramBot", "TelegramBot", "task_parameters", "UnixClient", "CheckingProgram"}
 COMPILE_MODULES = MODULES | {"CheckingProgram"}
 VENDORS = ("SeleniumModule", "CaptchaSolverModule")
 SHA1 = re.compile(r"[0-9a-f]{40}")
@@ -129,17 +129,33 @@ def load_json(path):
     return json.loads(path.read_text(encoding="utf-8-sig"))
 
 
+def red_cases(data):
+    return [data["red"]] if data["format"] == "leadya-private-unit-spec/v1" else data["red"]
+
+
 def spec(data):
-    need(set(data) == {"format", "compile_modules", "red", "green", "node", "green_patch_sha256"}
-         and data["format"] == "leadya-private-unit-spec/v1", "BAD_UNIT_SPEC")
+    fields = {"format", "compile_modules", "red", "green", "node", "green_patch_sha256"}
+    need(isinstance(data, dict) and data.get("format") in {
+        "leadya-private-unit-spec/v1", "leadya-private-unit-spec/v2"}, "BAD_UNIT_SPEC")
+    if data["format"] == "leadya-private-unit-spec/v2":
+        fields.add("sorter")
+    need(set(data) == fields, "BAD_UNIT_SPEC")
     need(isinstance(data["compile_modules"], list) and 0 < len(data["compile_modules"]) <= len(COMPILE_MODULES)
          and len(set(data["compile_modules"])) == len(data["compile_modules"])
          and set(data["compile_modules"]) <= COMPILE_MODULES, "BAD_COMPILE_MODULES")
-    red = data["red"]
-    need(set(red) == {"module", "class", "method", "failure_contains"}
-         and red["module"] in MODULES and CLASS.fullmatch(red["class"])
-         and METHOD.fullmatch(red["method"]) and isinstance(red["failure_contains"], str)
-         and 0 < len(red["failure_contains"]) <= 512, "BAD_RED_SPEC")
+    reds = red_cases(data)
+    need(isinstance(reds, list) and 0 < len(reds) <= 8, "BAD_RED_SPEC")
+    unique_reds = set()
+    for red in reds:
+        need(isinstance(red, dict) and set(red) == {"module", "class", "method", "failure_contains"}
+             and isinstance(red["module"], str) and red["module"] in MODULES
+             and isinstance(red["class"], str) and CLASS.fullmatch(red["class"])
+             and isinstance(red["method"], str) and METHOD.fullmatch(red["method"])
+             and isinstance(red["failure_contains"], str)
+             and 0 < len(red["failure_contains"]) <= 512, "BAD_RED_SPEC")
+        identity = (red["module"], red["class"], red["method"])
+        need(identity not in unique_reds, "DUPLICATE_RED_CASE")
+        unique_reds.add(identity)
     need(isinstance(data["green"], list) and 0 < len(data["green"]) <= len(MODULES), "BAD_GREEN_SPEC")
     seen = set()
     for suite in data["green"]:
@@ -149,8 +165,9 @@ def spec(data):
         need(isinstance(tests, list) and 0 < len(tests) <= 100 and len(set(tests)) == len(tests)
              and all(isinstance(t, str) and CLASS.fullmatch(t) for t in tests), "BAD_GREEN_TESTS")
         seen.add(suite["module"])
-    need(red["module"] in data["compile_modules"] and any(s["module"] == red["module"] and red["class"] in s["tests"]
-         for s in data["green"]), "RED_NOT_COVERED_BY_GREEN")
+    need(all(red["module"] in data["compile_modules"] and any(
+        suite["module"] == red["module"] and red["class"] in suite["tests"] for suite in data["green"])
+        for red in reds), "RED_NOT_COVERED_BY_GREEN")
     need(isinstance(data["node"], list) and 0 < len(data["node"]) <= 128, "BAD_NODE_SPEC")
     for name in data["node"]:
         p = relative(name)
@@ -158,6 +175,16 @@ def spec(data):
               or name == 'docker/n8n/workflows/leadya-chat-rag-code.test.cjs')
              and p.name.endswith((".test.js", ".test.cjs", ".test.mjs")), "BAD_NODE_PATH")
     need(len(set(data["node"])) == len(data["node"]) and SHA256.fullmatch(data["green_patch_sha256"]), "BAD_PATCH_DIGEST")
+    sorter = data.get("sorter")
+    if sorter is not None:
+        need("SpringAppFrontend" in data["compile_modules"], "SORTER_REQUIRES_FRONTEND_COMPILE")
+        need(isinstance(sorter, dict) and set(sorter) == {"keys", "translations"}, "BAD_SORTER_SPEC")
+        keys = sorter["keys"]
+        need(isinstance(keys, list) and 0 < len(keys) <= 16
+             and all(isinstance(key, str) and re.fullmatch(r"[A-Za-z0-9_.-]{1,160}", key) for key in keys)
+             and len(set(keys)) == len(keys), "BAD_SORTER_KEYS")
+        translation = relative(sorter["translations"])
+        need(translation.parts[:2] == ("documentation", "plans") and translation.suffix == ".json", "BAD_SORTER_INPUT")
     return data
 
 
@@ -317,9 +344,9 @@ def evaluate_green(directory, tests, exit_code, red=None):
     observed = {case.get("classname") for case in cases}
     need(exit_code == 0 and observed == set(tests) and cases, "GREEN_SCOPE_MISMATCH")
     need(all(case.find("failure") is None and case.find("error") is None and case.find("skipped") is None for case in cases), "GREEN_FAILED_OR_SKIPPED")
-    if red is not None:
-        need(sum(case.get("classname") == red["class"] and case.get("name") == red["method"] for case in cases) == 1,
-             "GREEN_MISSING_RED_REGRESSION")
+    for regression in ([red] if isinstance(red, dict) else red or []):
+        need(sum(case.get("classname") == regression["class"] and case.get("name") == regression["method"]
+                 for case in cases) == 1, "GREEN_MISSING_RED_REGRESSION")
     return {"tests": len(cases), "failures": 0, "errors": 0, "skipped": 0}
 
 
