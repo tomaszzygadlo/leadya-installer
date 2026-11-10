@@ -227,11 +227,11 @@ function Wait-LocalClientWindow($Notice, [string]$JavaDirectory, [DateTime]$Sinc
     $deadline = [DateTime]::UtcNow.AddMilliseconds($Milliseconds)
     while ([DateTime]::UtcNow -lt $deadline) {
         if ($Notice.Closed) { return 'CLOSED' }
-        foreach ($process in @(Get-Process -Name java, javaw, LeadYa -ErrorAction SilentlyContinue)) {
+        foreach ($process in @(Get-Process -Name java, javaw, LeadYa, 'LeadYa Checking Program' -ErrorAction SilentlyContinue)) {
             try {
                 if ($process.MainWindowHandle -ne [IntPtr]::Zero -and $process.StartTime -ge $Since -and
                     ([IO.Path]::GetDirectoryName($process.Path) -ieq $JavaDirectory -or
-                     ($RuntimeDirectory -and $process.ProcessName -ieq 'LeadYa' -and
+                     ($RuntimeDirectory -and $process.ProcessName -in @('LeadYa', 'LeadYa Checking Program') -and
                       $process.Path.StartsWith((Join-Path $RuntimeDirectory '.leadya-native') + '\', [StringComparison]::OrdinalIgnoreCase)))) { return 'SHOWN' }
             } catch { } finally { $process.Dispose() }
         }
