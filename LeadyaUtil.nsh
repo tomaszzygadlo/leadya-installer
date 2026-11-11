@@ -7,22 +7,12 @@
 !include nsDialogs.nsh
 !include Util.nsh
 
-!define LEADYA_BUNDLED_JRE_DIR "jdk-17.0.9+9-jre"
-!define LEADYA_SHARED_JRE_PARENT "$PROGRAMFILES64\Java"
+!define LEADYA_BUNDLED_JRE_DIR "jdk-17.0.21+9-jre"
+!define LEADYA_SHARED_JRE_PARENT "$LOCALAPPDATA\LeadYa\Java"
 !define LEADYA_SHARED_JRE_DIR "${LEADYA_SHARED_JRE_PARENT}\${LEADYA_BUNDLED_JRE_DIR}"
-!ifndef LEADYA_INSTALL_DOWNLOAD_DIR
-  !define LEADYA_INSTALL_DOWNLOAD_DIR "$INSTDIR"
-!endif
 Var JreArchiveHandle
 Var JreArchivePath
-
-!macro _StrContainsConstructor OUT NEEDLE HAYSTACK
-  Push `${HAYSTACK}`
-  Push `${NEEDLE}`
-  Call StrContains
-  Pop `${OUT}`
-!macroend
-!define StrContains '!insertmacro "_StrContainsConstructor"'
+Var JreStagePath
 
 !define SetTitleBar "!insertmacro SetTitleBar"
 !macro SetTitlebar Str
@@ -110,23 +100,14 @@ Var JreArchivePath
 !insertmacro GetTime
 
 !macro InstallJRE
-  !ifdef LEADYA_TRUSTED_DOWNLOADS
-    StrCpy $LocalValidationMode "JrePrepare"
-    Call RequireTrustedLocalJre
-  !endif
+  StrCpy $LocalValidationMode "JrePrepare"
+  Call RequireTrustedLocalJre
   ; A working shared runtime must remain available to other installed clients.
   IfFileExists "${LEADYA_SHARED_JRE_DIR}\bin\java.exe" 0 CheckOldJre
-  !ifdef LEADYA_TRUSTED_DOWNLOADS
-    ; LOCAL uses the pinned helper's isolated child environment. A failed probe never deletes a shared JRE.
-    StrCpy $LocalValidationMode "JreProbe"
-    Call RequireTrustedLocalJre
-    Goto Finish
-  !else
-  nsExec::ExecToStack /TIMEOUT=15000 '"${LEADYA_SHARED_JRE_DIR}\bin\java.exe" -version'
-  Pop $0
-  Pop $1
-  StrCmp $0 "0" Finish
-  !endif
+  ; LOCAL uses the pinned helper's isolated child environment. A failed probe never deletes a shared JRE.
+  StrCpy $LocalValidationMode "JreProbe"
+  Call RequireTrustedLocalJre
+  Goto Finish
   CheckOldJre:
   ; Replace only an unusable shared JRE.
   ${LogLine} "(InstallJRE) Checking if old JRE folder exists"
@@ -191,15 +172,10 @@ Var JreArchivePath
 
   CreateDirectory "${LEADYA_SHARED_JRE_PARENT}"
   ClearErrors
-  !ifdef LEADYA_TRUSTED_DOWNLOADS
-    Call AllocateLocalDownload
-    IfErrors JreDownloadPreparationFailed
-    ${StrRep} $JreArchivePath $LocalValidationOutput "$\r" ""
-    ${StrRep} $JreArchivePath $JreArchivePath "$\n" ""
-  !else
-    GetTempFileName $JreArchivePath "${LEADYA_INSTALL_DOWNLOAD_DIR}"
-    IfErrors JreDownloadPreparationFailed
-  !endif
+  Call AllocateLocalDownload
+  IfErrors JreDownloadPreparationFailed
+  ${StrRep} $JreArchivePath $LocalValidationOutput "$\r" ""
+  ${StrRep} $JreArchivePath $JreArchivePath "$\n" ""
 
   DetailPrint $(LOG_installingJre)
   DetailPrint "$(LOG_downloadingJre)"
@@ -214,11 +190,7 @@ Var JreArchivePath
   ${LogLine} "(InstallJRE) Downloading JRE failed"
   ${LogLine} "(InstallJRE) Error: $0"
   DetailPrint "$0" ;print error message to log
-  !ifdef LEADYA_TRUSTED_DOWNLOADS
-    !insertmacro ShowLocalStepFailure "LOCAL_JRE_DOWNLOAD" "JreDownload"
-  !else
-  MessageBox MB_OK|MB_ICONEXCLAMATION $(ERROR_somethingWentWrong) /SD IDOK
-  !endif
+  !insertmacro ShowLocalStepFailure "LOCAL_JRE_DOWNLOAD" "JreDownload"
   Abort
 
   Install:
@@ -228,41 +200,57 @@ Var JreArchivePath
   IfFileExists "${LEADYA_SHARED_JRE_DIR}\bin\java.exe" Installed
   ${LogLine} "(InstallJRE) JRE is not installed"
   DetailPrint $(LOG_installingJre)
-  ;Unzip
-  !ifdef LEADYA_TRUSTED_DOWNLOADS
-    StrCpy $LocalValidationMode "JreCreate"
-    Call RequireTrustedLocalJre
-  !endif
+  ;Unzip into a stage folder, so a broken unpack can never look like a finished runtime
+  StrCpy $LocalValidationMode "JreCreate"
+  Call RequireTrustedLocalJre
+  ${StrRep} $JreStagePath $LocalValidationOutput "$\r" ""
+  ${StrRep} $JreStagePath $JreStagePath "$\n" ""
   System::Call 'kernel32::CreateFileW(w "$JreArchivePath", i 0x80000000, i 1, p 0, i 3, i 0, p 0) p .r9'
   StrCpy $JreArchiveHandle $9
   StrCmp $JreArchiveHandle -1 0 JreArchiveLocked
-  !ifdef LEADYA_TRUSTED_DOWNLOADS
-    !insertmacro ShowLocalStepFailure "LOCAL_JRE_ARCHIVE" "JreCreate"
-  !else
-  MessageBox MB_OK $(ERROR_somethingWentWrong) /SD IDOK
-  !endif
+  !insertmacro ShowLocalStepFailure "LOCAL_JRE_ARCHIVE" "JreCreate"
   Abort
   JreArchiveLocked:
-  nsisunz::UnzipToLog "$JreArchivePath" "${LEADYA_SHARED_JRE_PARENT}"
+  ; The handle above denies writers, so the verified bytes are the bytes unpacked below.
+  StrCpy $LocalValidationInput $JreArchivePath
+  StrCpy $LocalValidationMode "JreVerify"
+  Call ValidateLocalInstallation
+  StrCmp $LocalValidationResult "0" JreArchiveVerified
+  System::Call 'kernel32::CloseHandle(p $JreArchiveHandle)'
+  !insertmacro ShowLocalStepFailure "LOCAL_JRE_ARCHIVE" "JreVerify"
+  Abort
+  JreArchiveVerified:
+  nsisunz::UnzipToLog "$JreArchivePath" "$JreStagePath"
   ${LogLine} "(InstallJRE) Unzipping JRE"
   Pop $0
   System::Call 'kernel32::CloseHandle(p $JreArchiveHandle)'
-  StrCmp $0 "success" Installed
+  StrCmp $0 "success" JreUnpacked
     ${LogLine} "(InstallJRE) Unzipping JRE failed"
     ${LogLine} "(InstallJRE) Error: $0"
     DetailPrint "$0" ;print error message to log
-    !ifdef LEADYA_TRUSTED_DOWNLOADS
-      !insertmacro ShowLocalStepFailure "LOCAL_JRE_UNZIP" "JreCreate"
-    !else
-    MessageBox MB_OK $(ERROR_somethingWentWrong) /SD IDOK
-    !endif
+    !insertmacro ShowLocalStepFailure "LOCAL_JRE_UNZIP" "JreCreate"
     Abort
 
+  JreUnpacked:
+  StrCpy $1 0
+  JrePublishRetry:
+  ClearErrors
+  Rename "$JreStagePath\${LEADYA_BUNDLED_JRE_DIR}" "${LEADYA_SHARED_JRE_DIR}"
+  IfErrors 0 JrePublished
+  ; Another installer of this user may have finished first.
+  IfFileExists "${LEADYA_SHARED_JRE_DIR}\bin\java.exe" JrePublished
+  ; A virus scanner can briefly hold the files that were just unpacked.
+  IntOp $1 $1 + 1
+  Sleep 500
+  IntCmp $1 20 0 JrePublishRetry
+  !insertmacro ShowLocalStepFailure "LOCAL_JRE_UNZIP" "JreCreate"
+  Abort
+  JrePublished:
+  RMDir /r "$JreStagePath"
+
   Installed:
-  !ifdef LEADYA_TRUSTED_DOWNLOADS
-    StrCpy $LocalValidationMode "Jre"
-    Call RequireTrustedLocalJre
-  !endif
+  StrCpy $LocalValidationMode "Jre"
+  Call RequireTrustedLocalJre
   ${LogLine} "(InstallJRE) JRE is installed"
 
   IfFileExists "$JreArchivePath" 0 Finish
@@ -271,59 +259,13 @@ Var JreArchivePath
   Delete "$JreArchivePath"
   Goto Finish
   JreDownloadPreparationFailed:
-  !ifdef LEADYA_TRUSTED_DOWNLOADS
-    ; AllocateLocalDownload left the validator's PackageTemp refusal code for support.
-    Call ShowLocalInstallationFailure
-  !else
-  MessageBox MB_OK $(ERROR_somethingWentWrong) /SD IDOK
-  !endif
+  ; AllocateLocalDownload left the validator's PackageTemp refusal code for support.
+  Call ShowLocalInstallationFailure
   Abort
   Finish:
   ${LogLine} "(InstallJRE) Finished"
   
 !macroend
-
-Var STR_HAYSTACK
-Var STR_NEEDLE
-Var STR_CONTAINS_VAR_1
-Var STR_CONTAINS_VAR_2
-Var STR_CONTAINS_VAR_3
-Var STR_CONTAINS_VAR_4
-Var STR_RETURN_VAR
- 
-Function StrContains
-  Exch $STR_NEEDLE
-  Exch 1
-  Exch $STR_HAYSTACK
-  ; Uncomment to debug
-  ; MessageBox MB_OK 'STR_NEEDLE = $STR_NEEDLE STR_HAYSTACK = $STR_HAYSTACK '
-    StrCpy $STR_RETURN_VAR ""
-    StrCpy $STR_CONTAINS_VAR_1 -1
-    StrLen $STR_CONTAINS_VAR_2 $STR_NEEDLE
-    StrLen $STR_CONTAINS_VAR_4 $STR_HAYSTACK
-    loop:
-      IntOp $STR_CONTAINS_VAR_1 $STR_CONTAINS_VAR_1 + 1
-      StrCpy $STR_CONTAINS_VAR_3 $STR_HAYSTACK $STR_CONTAINS_VAR_2 $STR_CONTAINS_VAR_1
-      StrCmp $STR_CONTAINS_VAR_3 $STR_NEEDLE found
-      StrCmp $STR_CONTAINS_VAR_1 $STR_CONTAINS_VAR_4 done
-      Goto loop
-    found:
-      StrCpy $STR_RETURN_VAR $STR_NEEDLE
-      Goto done
-    done:
-   Pop $STR_NEEDLE ;Prevent "invalid opcode" errors and keep the
-   Exch $STR_RETURN_VAR  
-FunctionEnd
-
-Function DisableNextButton
-  GetDlgItem $0 $HWNDPARENT 1
-  EnableWindow $0 0
-FunctionEnd
-
-Function EnableNextButton
-  GetDlgItem $0 $HWNDPARENT 1
-  EnableWindow $0 1
-FunctionEnd
 
 Function WriteLineToFile
 Exch $0
@@ -339,208 +281,4 @@ FileClose $0
 done:
 Pop $1
 Pop $0
-FunctionEnd
-
-Function RelGotoPage
-  IntCmp $R9 0 0 Move Move
-    StrCmp $R9 "X" 0 Move
-      StrCpy $R9 "120"
- 
-  Move:
-  SendMessage $HWNDPARENT "0x408" "$R9" ""
-FunctionEnd
-
-
-Function openLinkNewWindow
-  Push $3
-  Exch
-  Push $2
-  Exch
-  Push $1
-  Exch
-  Push $0
-  Exch
- 
-  ReadRegStr $0 HKCR "http\shell\open\command" ""
-# Get browser path
-    DetailPrint $0
-  StrCpy $2 '"'
-  StrCpy $1 $0 1
-  StrCmp $1 $2 +2 # if path is not enclosed in " look for space as final char
-    StrCpy $2 ' '
-  StrCpy $3 1
-  loop:
-    StrCpy $1 $0 1 $3
-    DetailPrint $1
-    StrCmp $1 $2 found
-    StrCmp $1 "" found
-    IntOp $3 $3 + 1
-    Goto loop
- 
-  found:
-    StrCpy $1 $0 $3
-    StrCmp $2 " " +2
-      StrCpy $1 '$1"'
- 
-  Pop $0
-  Exec '$1 $0'
-  Pop $0
-  Pop $1
-  Pop $2
-  Pop $3
-FunctionEnd
- 
-!macro _OpenURL URL
-Push "${URL}"
-Call openLinkNewWindow
-!macroend
- 
-!define OpenURL '!insertmacro "_OpenURL"'
-
-
-var Email
-var Password
-
-Function Login
-  Call DisableNextButton
-  ${LogLine} "(Login) Disabling next button"
-  ${LogLine} "(Login) Email: $Email"
-  StrLen $0 $Password
-  ${LogLine} "(Login) Password: *** (length: $0)"
-
-  ; Proper URL encoding for POST data
-  ${LogLine} "(Login) Encoding credentials for POST request"
-
-  ; URL encode email for POST
-  StrCpy $EmailEncoded $Email
-  ${StrRep} $EmailEncoded $EmailEncoded "%" "%25"
-  ${StrRep} $EmailEncoded $EmailEncoded "+" "%2B"
-  ${StrRep} $EmailEncoded $EmailEncoded "&" "%26"
-  ${StrRep} $EmailEncoded $EmailEncoded "=" "%3D"
-  ${StrRep} $EmailEncoded $EmailEncoded " " "%20"
-  ${StrRep} $EmailEncoded $EmailEncoded "@" "%40"
-  ${StrRep} $EmailEncoded $EmailEncoded "#" "%23"
-  ${StrRep} $EmailEncoded $EmailEncoded "?" "%3F"
-  ${StrRep} $EmailEncoded $EmailEncoded "<" "%3C"
-  ${StrRep} $EmailEncoded $EmailEncoded ">" "%3E"
-  ${StrRep} $EmailEncoded $EmailEncoded "$\"" "%22"
-  ${StrRep} $EmailEncoded $EmailEncoded "'" "%27"
-
-  ; URL encode password for POST
-  StrCpy $PasswordEncoded $Password
-  ${StrRep} $PasswordEncoded $PasswordEncoded "%" "%25"
-  ${StrRep} $PasswordEncoded $PasswordEncoded "+" "%2B"
-  ${StrRep} $PasswordEncoded $PasswordEncoded "&" "%26"
-  ${StrRep} $PasswordEncoded $PasswordEncoded "=" "%3D"
-  ${StrRep} $PasswordEncoded $PasswordEncoded " " "%20"
-  ${StrRep} $PasswordEncoded $PasswordEncoded "#" "%23"
-  ${StrRep} $PasswordEncoded $PasswordEncoded "?" "%3F"
-  ${StrRep} $PasswordEncoded $PasswordEncoded "*" "%2A"
-  ${StrRep} $PasswordEncoded $PasswordEncoded "<" "%3C"
-  ${StrRep} $PasswordEncoded $PasswordEncoded ">" "%3E"
-  ${StrRep} $PasswordEncoded $PasswordEncoded "$\"" "%22"
-  ${StrRep} $PasswordEncoded $PasswordEncoded "'" "%27"
-  ${StrRep} $PasswordEncoded $PasswordEncoded "{" "%7B"
-  ${StrRep} $PasswordEncoded $PasswordEncoded "}" "%7D"
-  ${StrRep} $PasswordEncoded $PasswordEncoded "[" "%5B"
-  ${StrRep} $PasswordEncoded $PasswordEncoded "]" "%5D"
-  ${StrRep} $PasswordEncoded $PasswordEncoded "\" "%5C"
-  ${StrRep} $PasswordEncoded $PasswordEncoded "/" "%2F"
-  ${StrRep} $PasswordEncoded $PasswordEncoded ":" "%3A"
-  ${StrRep} $PasswordEncoded $PasswordEncoded ";" "%3B"
-  ${StrRep} $PasswordEncoded $PasswordEncoded "," "%2C"
-  ${StrRep} $PasswordEncoded $PasswordEncoded "." "%2E"
-  ${StrRep} $PasswordEncoded $PasswordEncoded "~" "%7E"
-  ${StrRep} $PasswordEncoded $PasswordEncoded "!" "%21"
-  ${StrRep} $PasswordEncoded $PasswordEncoded "$$" "%24"
-  ${StrRep} $PasswordEncoded $PasswordEncoded "^" "%5E"
-  ${StrRep} $PasswordEncoded $PasswordEncoded "(" "%28"
-  ${StrRep} $PasswordEncoded $PasswordEncoded ")" "%29"
-
-  ${LogLine} "(Login) Credentials encoded for POST request"
-
-  ; Use only the secure /installer/login endpoint
-  ${LogLine} "(Login) Attempting secure login via /installer/login"
-  ${LogLine} "(Login) Target URL: ${url}/installer/login"
-
-  inetc::post "email=$EmailEncoded&password=$PasswordEncoded" "${url}/installer/login" "$INSTDIR\temp.html" /END
-  ${LogLine} "(Login) POST request completed"
-  Pop $0
-  ${LogLine} "(Login) POST request response code: $0"
-
-  ; Check if endpoint works
-  StrCmp $0 "OK" SecureEndpointOk
-
-  ; Login failed - show error and abort
-  ${LogLine} "(Login) Login failed with response: $0"
-  ${LogLine} "(Login) HTTP Error Details: $0"
-  ${LogLine} "(Login) Possible causes:"
-  ${LogLine} "(Login) 1. Wrong credentials"
-  ${LogLine} "(Login) 2. Endpoint not available on ${url}"
-  ${LogLine} "(Login) 3. Network connectivity issues"
-  ${LogLine} "(Login) 4. Server is down or overloaded"
-  ${LogLine} "(Login) 5. SSL/TLS certificate problems"
-  MessageBox MB_OK|MB_ICONEXCLAMATION "Login Error: $0$\r$\n$\r$\nDetails in log: $INSTDIR\$currentLogFileName$\r$\n$\r$\nPlease check:$\r$\n- Your credentials$\r$\n- Internet connection$\r$\n- Server status: ${url}" /SD IDOK
-  Call EnableNextButton
-  ${LogLine} "(Login) Enabling next button after error"
-  Abort
-
-  SecureEndpointOk:
-  Pop $0
-  ${LogLine} "(Login) Secure endpoint successful, checking response"
-  Call ReadInstallerLoginResponse
-  ${LogLine} "(Login) Secure response parsing result: $2"
-  StrCmp $2 "" LoginOk
-  ${LogLine} "(Login) Secure login failed - wrong credentials"
-  MessageBox MB_OK|MB_ICONEXCLAMATION "$(ERROR_wrongCredentials)$\r$\n$\r$\nUsing secure login method.$\r$\nCheck log: $INSTDIR\$currentLogFileName" /SD IDOK
-  Call EnableNextButton
-  ${LogLine} "(Login) Enabling next button"
-  Abort
-
-  LoginOk:
-  ${LogLine} "(Login) Login successful!"
-
-  ; Credentials are already encoded and ready for bot.properties download
-  ${LogLine} "(Login) Encoded credentials prepared for bot.properties download"
-
-  Call EnableNextButton
-  ${LogLine} "(Login) Enabling next button"
-FunctionEnd
-
-
-Function ReadInstallerLoginResponse
-  ClearErrors
-  FileOpen $0 "$INSTDIR\temp.html" r
-  ${LogLine} "(ReadInstallerLoginResponse) Opening file $INSTDIR\temp.html"
-
-  ; Read the entire response
-  FileRead $0 $1
-  ${LogLine} "(ReadInstallerLoginResponse) Response content: $1"
-
-  ; Check if response contains "Success"
-  ${StrContains} $2 "Success:" $1
-  StrCmp $2 "" CheckError
-  ; Success found - clear $2 to indicate success
-  StrCpy $2 ""
-  ${LogLine} "(ReadInstallerLoginResponse) Login successful"
-  Goto CloseFile
-
-  CheckError:
-  ; Check if response contains "Error"
-  ${StrContains} $2 "Error:" $1
-  StrCmp $2 "" UnknownResponse
-  ; Error found - set $2 to non-empty to indicate failure
-  StrCpy $2 "ERROR"
-  ${LogLine} "(ReadInstallerLoginResponse) Login failed with error"
-  Goto CloseFile
-
-  UnknownResponse:
-  ; Unknown response - assume failure
-  StrCpy $2 "UNKNOWN"
-  ${LogLine} "(ReadInstallerLoginResponse) Unknown response format"
-
-  CloseFile:
-  FileClose $0
-  ${LogLine} "(ReadInstallerLoginResponse) Closing file $INSTDIR\temp.html"
-  Delete "$INSTDIR\temp.html"
 FunctionEnd

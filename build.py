@@ -120,7 +120,7 @@ def stage_inputs(source, destination, plugin_directory=None):
         output.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(path, output)
     plugins = Path(plugin_directory) if plugin_directory else source / 'plugins'
-    for filename in ('AccessControl.dll', 'INetC.dll', 'nsisunz.dll', 'ShellExecAsUser.dll'):
+    for filename in ('INetC.dll', 'nsisunz.dll'):
         path = plugins / filename
         if not path.is_file() or path.is_symlink() or getattr(path.lstat(), 'st_file_attributes', 0) & 0x400:
             raise ValueError('Provide the separately licensed Unicode plugin: ' + filename)

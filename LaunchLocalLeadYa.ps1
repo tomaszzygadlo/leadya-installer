@@ -6,6 +6,31 @@ function ConvertTo-LocalLaunchCode($Value) {
     return 'LOCAL_VALIDATION_FAILED'
 }
 
+function Select-LocalJava([string]$LocalAppData) {
+    # The per-user runtime comes first. After a client died at once on it, its refusal lets any other Java go first;
+    # alone it is still better than none. ProgramW6432 names the 64-bit program folder even in a 32-bit process.
+    # LocalJavaProvisionerTest binds both names to WindowsJavaLocations of the client.
+    $current = 'jdk-17.0.21+9-jre'
+    $previous = 'jdk-17.0.9+9-jre'
+    $perUser = if ($LocalAppData) { [IO.Path]::Combine($LocalAppData, 'LeadYa\Java', $current) } else { $null }
+    $homes = New-Object Collections.Generic.List[string]
+    if ($perUser -and -not [IO.File]::Exists($perUser + '.refused')) { $homes.Add($perUser) }
+    foreach ($variable in @('ProgramW6432', 'ProgramFiles')) {
+        $programs = [Environment]::GetEnvironmentVariable($variable)
+        if (-not $programs) { continue }
+        foreach ($name in @($current, $previous)) {
+            $candidate = [IO.Path]::Combine($programs, 'Java', $name)
+            if ($homes -notcontains $candidate) { $homes.Add($candidate) }
+        }
+    }
+    if ($perUser) { $homes.Add($perUser) }
+    foreach ($jreHome in $homes) {
+        $java = [IO.Path]::Combine($jreHome, 'bin\java.exe')
+        if ([IO.File]::Exists($java)) { return $java }
+    }
+    return $null
+}
+
 function Get-LocalJvmFailureCode([string]$Diagnostic) {
     # Keep in sync with the standalone validator; neither caller logs the captured text.
     if ($Diagnostic -match '(?i)insufficient memory for the Java Runtime Environment|Could not reserve enough space|Native memory allocation .* failed|OutOfMemoryError|paging file is too small|os::commit_memory.*(1455|error=8)') { return 'LOCAL_JAVA_MEMORY' }
@@ -266,6 +291,38 @@ function Invoke-LocalLaunchPreparation([scriptblock]$Attempt, [scriptblock]$Sess
     }
 }
 
+function Invoke-LocalProfileStep([scriptblock]$Attempt, [ValidateSet('PROFILE', 'PREPARE')][string]$Phase,
+    [scriptblock]$Pause = { Start-Sleep -Milliseconds 1000 }, [int]$Attempts = 3) {
+    # A scanner or backup can hold a profile file for a moment; the validator then answers LOCAL_VALIDATION_FAILED.
+    # Only that answer is tried again, about a second apart; any other answer, also a fixed refusal, is final at once.
+    for ($try = 1; ; $try++) {
+        $result = & $Attempt
+        if ($result.ExitCode -eq 0 -or $try -ge $Attempts -or (ConvertTo-LocalLaunchCode $result.Output) -cne 'LOCAL_VALIDATION_FAILED') { return $result }
+        Write-LocalLaunchEvent ($Phase + '_RETRY') 'LOCAL_VALIDATION_FAILED'
+        & $Pause
+    }
+}
+
+function Get-LocalLaunchFailureMessage([string]$Stage, [string]$Code, [string]$Language) {
+    # Plain words for the person in Polish or English; the fixed code on its own line is only for technical support.
+    # Only a failure that passes by itself (a file held for a moment, too little free memory) asks to try again soon;
+    # any other one does not pass by waiting, so it asks to install LeadYa again or to contact support.
+    $kind = 'reinstall'
+    if ($Code -cin @('LOCAL_VALIDATION_FAILED', 'LOCAL_JAVA_MEMORY')) { $kind = 'retry' }
+    if ($Code -ceq 'LOCAL_ELEVATED_RUNTIME') { $kind = 'elevated' }
+    $supportLine = $Stage + ': ' + $Code
+    if ($Language -ceq 'pl') {
+        $text = 'Nie udało się uruchomić LeadYa. Zainstaluj LeadYa ponownie. Jeśli to nie pomoże, skontaktuj się z pomocą techniczną.'
+        if ($kind -ceq 'retry') { $text = 'Nie udało się uruchomić LeadYa. Spróbuj ponownie za chwilę.' }
+        if ($kind -ceq 'elevated') { $text = 'LeadYa jest już zainstalowana. Otwórz LeadYa z menu Start w zwykły sposób, nie jako administrator.' }
+        return $text + "`n`nKod dla pomocy technicznej:`n" + $supportLine
+    }
+    $text = 'LeadYa could not start. Install LeadYa again. If that does not help, contact technical support.'
+    if ($kind -ceq 'retry') { $text = 'LeadYa could not start. Please try again in a moment.' }
+    if ($kind -ceq 'elevated') { $text = 'LeadYa is already installed. Open LeadYa from the Start menu in the usual way, not as administrator.' }
+    return $text + "`n`nCode for technical support:`n" + $supportLine
+}
+
 function Update-PersonalLaunchLinks([string]$Package, [string[]]$Links, [string]$StartupLink) {
     try { $shell = New-Object -ComObject WScript.Shell } catch { return $false }
     $scriptHost = Join-Path $env:SystemRoot 'System32\wscript.exe'
@@ -291,7 +348,6 @@ function Update-PersonalLaunchLinks([string]$Package, [string[]]$Links, [string]
 
 $ErrorActionPreference = 'Stop'
 $env:PSModulePath = Join-Path $PSHOME 'Modules'
-$launchMessage = 'LeadYa could not start. Diagnostic code:'
 $stage = 'START'
 $launchMutex = $null
 $launchNotice = $null
@@ -303,32 +359,36 @@ $script:memoryNoticeShown = $false
 try {
     if ($RequestedVersion -and $RequestedVersion -notmatch '^\d+\.\d+\.\d+\.\d+$') { throw 'LOCAL_REQUESTED_VERSION' }
     if (([Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent())).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-        $launchMessage = 'LeadYa is installed. Open LeadYa from the Start menu without Run as administrator.'
         throw 'LOCAL_ELEVATED_RUNTIME'
     }
     $launchNotice = Start-LocalLaunchNotice $PSScriptRoot
     $binding = Join-Path $PSScriptRoot 'leadya-code-home.txt'
     $codeRoot = if ([IO.File]::Exists($binding)) { [IO.File]::ReadAllText($binding).TrimEnd("`r", "`n") } else { $PSScriptRoot }
     $origin = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'leadya-local-origin.txt')).Trim()
+    # A computer moved from the old machine-wide install keeps the identity of its original program folder.
+    $identityBinding = Join-Path $PSScriptRoot 'leadya-identity-root.txt'
+    $identityArguments = @(if ([IO.File]::Exists($identityBinding)) { '-IdentityRoot'; [IO.File]::ReadAllText($identityBinding).TrimEnd("`r", "`n") })
     $validator = Join-Path $PSScriptRoot 'ValidateLocalInstall.ps1'
     $native = Join-Path $PSHOME 'powershell.exe'
     $stage = 'PACKAGE'
-    $packageOutput = & $native -NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File $validator -InstallDirectory $codeRoot -Mode Package -PublicOrigin $origin
+    $packageOutput = & $native -NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File $validator -InstallDirectory $codeRoot -Mode Package -PublicOrigin $origin @identityArguments
     if ($LASTEXITCODE -ne 0) { throw (ConvertTo-LocalLaunchCode $packageOutput) }
     $package = ([string]($packageOutput -join "`n")).TrimEnd("`r", "`n")
     $validator = Join-Path $package 'ValidateLocalInstall.ps1'
     $version = [IO.File]::ReadAllText((Join-Path $package 'checking_program_version.txt')).Trim()
     if ($version -notmatch '^[A-Za-z0-9.]+$') { throw 'LOCAL_PROGRAM_VERSION' }
-    $programFiles = if ($env:ProgramW6432) { $env:ProgramW6432 } else { $env:ProgramFiles }
     # java.exe + CreateNoWindow keeps startup windowless and makes JVM errors observable;
     # javaw.exe can hold a modal JVM error dialog instead of returning its failure.
-    $java = Join-Path $programFiles 'Java\jdk-17.0.9+9-jre\bin\java.exe'
+    $java = Select-LocalJava ([Environment]::GetFolderPath('LocalApplicationData'))
     if ($JavaExecutable) { $java = [IO.Path]::GetFullPath($JavaExecutable) }
-    if (-not [IO.File]::Exists($java)) { throw 'LOCAL_JAVA_MISSING' }
+    if (-not $java -or -not [IO.File]::Exists($java)) { throw 'LOCAL_JAVA_MISSING' }
     $stage = 'PROFILE'
-    $resolved = & $native -NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File $validator -InstallDirectory $codeRoot -Mode Runtime -PublicOrigin $origin -SeedDirectory $package
-    if ($LASTEXITCODE -ne 0) { throw (ConvertTo-LocalLaunchCode $resolved) }
-    $runtime = ([string]($resolved -join "`n")).TrimEnd("`r", "`n")
+    $resolved = Invoke-LocalProfileStep -Phase PROFILE -Attempt {
+        $output = & $native -NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File $validator -InstallDirectory $codeRoot -Mode Runtime -PublicOrigin $origin -SeedDirectory $package @identityArguments
+        [pscustomobject]@{ ExitCode=$LASTEXITCODE; Output=$output }
+    }
+    if ($resolved.ExitCode -ne 0) { throw (ConvertTo-LocalLaunchCode $resolved.Output) }
+    $runtime = ([string]($resolved.Output -join "`n")).TrimEnd("`r", "`n")
     if (-not [IO.Path]::IsPathRooted($runtime) -or $runtime.Contains('"') -or $runtime.Contains("`r") -or $runtime.Contains("`n")) { throw 'LOCAL_RUNTIME_BINDING' }
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
     $launchMutex = Enter-LocalLaunchGate ('Local\LeadYa.Start.' + $identity + '.' + [IO.Path]::GetFileName($package))
@@ -340,17 +400,20 @@ try {
     }
     $launchOwner = Get-LocalLaunchOwner
     Invoke-LocalLaunchPreparation -SessionAlive { Test-LocalLaunchOwner $launchOwner } -Attempt {
-        $ready = & $native -NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File $validator -InstallDirectory $codeRoot -Mode Prepare -PublicOrigin $origin -RuntimeDirectory $runtime -ProgramJar "CheckingProgram-$version.jar" -JavaExecutable (Join-Path (Split-Path $java) 'java.exe') -SeedDirectory $package
-        $preparationExit = $LASTEXITCODE
-        $preparationCode = ConvertTo-LocalLaunchCode $ready
+        $ready = Invoke-LocalProfileStep -Phase PREPARE -Attempt {
+            $output = & $native -NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File $validator -InstallDirectory $codeRoot -Mode Prepare -PublicOrigin $origin -RuntimeDirectory $runtime -ProgramJar "CheckingProgram-$version.jar" -JavaExecutable (Join-Path (Split-Path $java) 'java.exe') -SeedDirectory $package @identityArguments
+            [pscustomobject]@{ ExitCode=$LASTEXITCODE; Output=$output }
+        }
+        $preparationExit = $ready.ExitCode
+        $preparationCode = ConvertTo-LocalLaunchCode $ready.Output
         # These outcomes can only be emitted after Prepare has bound and checked the private home.
         if ($preparationCode -in @('LOCAL_VALID', 'LOCAL_JAVA_MEMORY', 'LOCAL_JAVA_FAILED', 'LOCAL_JAVA_TIMEOUT') -and
             [IO.File]::Exists((Join-Path $runtime 'leadya-local-install.txt'))) { $script:startupLog = Join-Path $runtime 'leadya-startup.log' }
         [pscustomobject]@{ ExitCode=$preparationExit; Code=$preparationCode }
     } | Out-Null
     $script:startupLog = Join-Path $runtime 'leadya-startup.log'
-    # Only this verified ordinary token may write to a user-selected folder or personal shortcuts.
-    & $native -NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File $validator -InstallDirectory $codeRoot -Mode Mirror -PublicOrigin $origin -ProgramJar "CheckingProgram-$version.jar" -SeedDirectory $package | Out-Null
+    # Refresh the copy in the chosen program folder from the verified package.
+    & $native -NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File $validator -InstallDirectory $codeRoot -Mode Mirror -PublicOrigin $origin -ProgramJar "CheckingProgram-$version.jar" -SeedDirectory $package @identityArguments | Out-Null
     $stage = 'BOOTSTRAP'
     $available = @()
     foreach ($file in Get-ChildItem -LiteralPath $runtime -Filter 'CheckingProgram-*.jar' -File) {
@@ -420,8 +483,11 @@ try {
     Write-Error ("LeadYa startup failed: " + $stage + ' ' + $code) -ErrorAction Continue
     [void](Stop-LocalLaunchNotice $launchNotice)
     if (-not $NoDialog -and $code -cne 'LOCAL_LAUNCH_SESSION_ENDED') {
+        $language = 'en'
+        try { $language = (Get-UICulture).TwoLetterISOLanguageName } catch { }
+        $message = Get-LocalLaunchFailureMessage $stage $code $language
         Add-Type -AssemblyName System.Windows.Forms
-        [Windows.Forms.MessageBox]::Show(($launchMessage + "`n`n" + $stage + ': ' + $code), 'LeadYa') | Out-Null
+        [Windows.Forms.MessageBox]::Show($message, 'LeadYa') | Out-Null
     }
     exit 1
 } finally {

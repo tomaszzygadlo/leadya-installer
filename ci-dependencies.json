@@ -8,14 +8,6 @@
   },
   "plugins": [
     {
-      "filename": "AccessControl.zip",
-      "url": "https://nsis.sourceforge.io/mediawiki/images/4/4a/AccessControl.zip",
-      "sha256": "9aa60f9c5c023fda2808af216514d8913d2673bc522d944ee771da032a1bdc10",
-      "member": "Plugins/i386-unicode/AccessControl.dll",
-      "name": "AccessControl.dll",
-      "dll_sha256": "5fd5d8aec97cffaad9b7df6371b348d436cf1401e86fab614dc4cb8575428e52"
-    },
-    {
       "filename": "Inetc.zip",
       "url": "https://nsis.sourceforge.io/mediawiki/images/c/c9/Inetc.zip",
       "sha256": "88d9dcffbe967df6ee9f5820f8199a673383e581bf650dbc35b94846314b1a4b",
@@ -30,14 +22,6 @@
       "member": "NSISunzU/Plugin unicode/nsisunz.dll",
       "name": "nsisunz.dll",
       "dll_sha256": "c31b590cba443de87f0f4a81712f0883ac3b506f3868759d918d9a81f84ea922"
-    },
-    {
-      "filename": "ShellExecAsUserUnicodeUpdate.zip",
-      "url": "https://nsis.sourceforge.io/mediawiki/images/1/1d/ShellExecAsUserUnicodeUpdate.zip",
-      "sha256": "79bdd3e54a9ba9c30af85557b475d2322286f8726687f2e23afa772aac6049ab",
-      "member": "unicode/ShellExecAsUser.dll",
-      "name": "ShellExecAsUser.dll",
-      "dll_sha256": "1f17e4d5ffe7b2c9a396ee9932ac5198f0c050241e5f9ccd3a56e576613d8a29"
     }
   ]
 }

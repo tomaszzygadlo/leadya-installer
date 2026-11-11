@@ -13,7 +13,12 @@ function Assert-RuntimeAncestors([string]$Path) {
     if ($script:refused -and $Path -eq $script:refused) { throw 'Fixture custody refusal' }
 }
 function Assert-Custody([string]$Path, [bool]$Private) { }
-function Assert-LocalMarker([string]$Path) { }
+function Assert-LocalMarker([string]$Path) {
+    if ($script:badMarker -and $Path -eq $script:badMarker) { throw 'LOCAL_MARKER_MISMATCH' }
+    # The real read of the marker, so that a real held handle fails as it would in the validator.
+    $marker = Join-Path $Path 'leadya-local-install.txt'
+    if ([IO.File]::Exists($marker)) { [void][IO.File]::ReadAllLines($marker) }
+}
 function Assert-Refused([scriptblock]$Action) {
     $failed = $false
     try { & $Action | Out-Null } catch { $failed = $true }
@@ -56,7 +61,49 @@ try {
     if ((Resolve-LocalRuntime @($old, $current)) -cne $current) { throw 'Interrupted recovery binding lost' }
     [IO.File]::WriteAllText((Join-Path $current 'leadya-profile-recovery-pending.txt'), 'broken')
     Assert-Refused { Resolve-LocalRuntime @($old, $current) }
-    Write-Output 'PASS: retained login, bound home kept on reinstall, support refusal code, permanent binding after logout/reinstall, pending, conflict, custody refusal'
+    # Data with a marker of another place can never be prepared, so a valid profile in the other location goes first.
+    $first = Join-Path $fixture 'first'
+    $second = Join-Path $fixture 'second'
+    [IO.Directory]::CreateDirectory((Join-Path $first 'bot_files')) | Out-Null
+    [IO.File]::WriteAllText((Join-Path $first 'bot_files\bot.properties'), '[TEST] data')
+    [IO.File]::WriteAllText((Join-Path $first 'leadya-local-install.txt'), '[TEST] marker of another place')
+    [IO.Directory]::CreateDirectory($second) | Out-Null
+    [IO.File]::WriteAllText((Join-Path $second 'leadya-local-install.txt'), '[TEST] valid marker')
+    $script:badMarker = $first
+    if ((Resolve-LocalRuntime @($first, $second)) -cne $second) { throw 'A populated folder with a broken marker went before a valid profile' }
+    [IO.Directory]::CreateDirectory((Join-Path $second 'bot_files')) | Out-Null
+    [IO.File]::WriteAllText((Join-Path $second 'bot_files\bot.properties'), '[TEST] data')
+    if ((Resolve-LocalRuntime @($first, $second)) -cne $second) { throw 'A valid populated profile lost to a broken one' }
+    $script:badMarker = $null
+    if ((Resolve-LocalRuntime @($first, $second)) -cne $first) { throw 'Two valid populated profiles must keep their order' }
+    # A passing read error is no broken marker: the profile in use must not move to a spare location with a marker.
+    $used = Join-Path $fixture 'used'
+    $spare = Join-Path $fixture 'spare'
+    [IO.Directory]::CreateDirectory((Join-Path $used 'bot_files')) | Out-Null
+    [IO.File]::WriteAllText((Join-Path $used 'bot_files\bot.properties'), '[TEST] data')
+    [IO.File]::WriteAllText((Join-Path $used 'leadya-local-install.txt'), '[TEST] valid marker')
+    [IO.Directory]::CreateDirectory($spare) | Out-Null
+    [IO.File]::WriteAllText((Join-Path $spare 'leadya-local-install.txt'), '[TEST] valid marker')
+    if ((Resolve-LocalRuntime @($used, $spare)) -cne $used) { throw 'The profile in use must be chosen' }
+    # A held marker is unknown, not broken: the profile in use stays chosen and the read error surfaces only at its use.
+    $held = [IO.File]::Open((Join-Path $used 'leadya-local-install.txt'), [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::None)
+    try {
+        $chosen = Resolve-LocalRuntime @($used, $spare)
+        if ($chosen -cne $used) { throw "A held marker moved the profile in use: $chosen" }
+        $surfaced = $false
+        try { Assert-LocalMarker $chosen } catch { $surfaced = -not ([string]$_.Exception.Message -cmatch '^LOCAL_[A-Z_]{1,40}$') }
+        if (-not $surfaced) { throw 'The read error must surface when the chosen profile is used' }
+    } finally { $held.Dispose() }
+    if ((Resolve-LocalRuntime @($used, $spare)) -cne $used) { throw 'Once the handle is gone the profile in use is chosen again' }
+    # A held marker on the unused location must not stop the profile in use.
+    $held = [IO.File]::Open((Join-Path $spare 'leadya-local-install.txt'), [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::None)
+    try {
+        $chosen = Resolve-LocalRuntime @($used, $spare)
+        if ($chosen -cne $used) { throw "A held spare marker changed the choice: $chosen" }
+        Assert-LocalMarker $chosen
+        if ((Resolve-LocalRuntime @($spare, $used)) -cne $used) { throw 'A held marker without data went before the profile in use' }
+    } finally { $held.Dispose() }
+    Write-Output 'PASS: retained login, bound home kept on reinstall, support refusal code, permanent binding after logout/reinstall, pending, conflict, custody refusal, valid marker before broken data, held marker keeps the profile in use, held spare marker'
 } finally {
     $resolved = [IO.Path]::GetFullPath($fixture)
     if ([IO.Path]::GetDirectoryName($resolved) -ieq [IO.Path]::GetTempPath().TrimEnd('\') -and

@@ -5,7 +5,8 @@ $source = Join-Path $sourceDirectory 'LaunchLocalLeadYa.ps1'
 $errors = $null
 $tree = [Management.Automation.Language.Parser]::ParseFile($source, [ref]$null, [ref]$errors)
 if ($errors.Count) { throw 'Invalid production launcher syntax' }
-foreach ($name in @('ConvertTo-LocalLaunchCode', 'Get-LocalJvmFailureCode', 'Write-LocalLaunchEvent', 'Invoke-LocalLaunchBootstrap', 'Invoke-LocalLaunchPreparation')) {
+foreach ($name in @('ConvertTo-LocalLaunchCode', 'Get-LocalJvmFailureCode', 'Write-LocalLaunchEvent', 'Invoke-LocalLaunchBootstrap', 'Invoke-LocalLaunchPreparation',
+    'Invoke-LocalProfileStep', 'Get-LocalLaunchFailureMessage')) {
     $definition = $tree.Find({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name }, $true)
     if (-not $definition) { throw "Missing production function: $name" }
     Invoke-Expression $definition.Extent.Text
@@ -26,6 +27,25 @@ function Wait-LocalLaunchMemory([int]$Milliseconds) {
 }
 function Reset-TestState {
     $script:notices = 0; $script:waits = 0; $script:ownerAlive = $true; $script:endDuringWait = $false
+}
+# Another hidden process holds the marker like a scanner, for the given time only.
+function Start-MarkerHolder([string]$Marker, [int]$Milliseconds) {
+    $ready = $Marker + '.held'
+    if ([IO.File]::Exists($ready)) { [IO.File]::Delete($ready) }
+    $body = '$h=[IO.File]::Open(''' + $Marker.Replace("'", "''") + ''',''Open'',''Read'',''None''); [IO.File]::WriteAllText(''' + $ready.Replace("'", "''") + ''',''1''); Start-Sleep -Milliseconds ' + $Milliseconds + '; $h.Dispose()'
+    $holder = Start-Process -FilePath (Join-Path $PSHOME 'powershell.exe') -WindowStyle Hidden -PassThru -ArgumentList ('-NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -EncodedCommand ' + [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($body)))
+    $deadline = [DateTime]::UtcNow.AddSeconds(20)
+    while (-not [IO.File]::Exists($ready)) {
+        if ([DateTime]::UtcNow -gt $deadline -or $holder.HasExited) { throw 'The marker holder did not start' }
+        Start-Sleep -Milliseconds 20
+    }
+    return $holder
+}
+# The profile step as the validator answers it: a read error of the marker is LOCAL_VALIDATION_FAILED.
+function Read-HeldMarker([string]$Marker) {
+    $script:profileAttempts++
+    try { [void][IO.File]::ReadAllLines($Marker); return [pscustomobject]@{ ExitCode=0; Output='LOCAL_VALID' } }
+    catch { return [pscustomobject]@{ ExitCode=12; Output='LOCAL_VALIDATION_FAILED' } }
 }
 try {
     [IO.Directory]::CreateDirectory($fixture) | Out-Null
@@ -86,7 +106,75 @@ try {
     $ancestor = $nativeCalls[0].Parent
     while ($ancestor -and -not ($ancestor -is [Management.Automation.Language.CommandAst] -and $ancestor.GetCommandName() -eq 'Invoke-LocalLaunchPreparation')) { $ancestor = $ancestor.Parent }
     if (-not $ancestor) { throw 'Main native preparation must be inside the owner-bound retry' }
-    Write-Output 'PASS: actual hidden stderr OOM retry, Base64 stdout, Win32 memory retry, owner end, permanent refusal, late output, bounded pipes, timeout child cleanup and production wiring'
+    # A marker held for less than the retry window: the profile step waits about a second and then succeeds.
+    $marker = Join-Path $fixture 'leadya-local-install.txt'
+    [IO.File]::WriteAllText($marker, '[TEST] marker')
+    [IO.File]::WriteAllText($script:startupLog, '')
+    $script:profileAttempts = 0
+    $holder = Start-MarkerHolder $marker 1500
+    try {
+        $watch = [Diagnostics.Stopwatch]::StartNew()
+        $result = Invoke-LocalProfileStep -Phase PROFILE -Attempt { Read-HeldMarker $marker }
+        $watch.Stop()
+    } finally { $holder.WaitForExit(); $holder.Dispose() }
+    if ($result.ExitCode -ne 0 -or $script:profileAttempts -lt 2 -or $script:profileAttempts -gt 3) { throw "A briefly held marker must pass on a retry: $($script:profileAttempts) attempts" }
+    if ($watch.ElapsedMilliseconds -lt 900) { throw 'The retry must wait about a second' }
+    if ([IO.File]::ReadAllText($script:startupLog) -notmatch 'PROFILE_RETRY LOCAL_VALIDATION_FAILED') { throw 'A retry must be visible in the startup log' }
+    # Held longer than the window: three attempts, then the read error is final.
+    $script:profileAttempts = 0
+    $script:pauses = 0
+    $holder = Start-MarkerHolder $marker 3000
+    try {
+        $result = Invoke-LocalProfileStep -Phase PREPARE -Pause { $script:pauses++ } -Attempt { Read-HeldMarker $marker }
+    } finally { $holder.WaitForExit(); $holder.Dispose() }
+    if ($result.ExitCode -eq 0 -or $result.Output -cne 'LOCAL_VALIDATION_FAILED' -or $script:profileAttempts -ne 3 -or $script:pauses -ne 2) {
+        throw "A marker held for long must fail after three attempts: $($script:profileAttempts) attempts, $($script:pauses) pauses"
+    }
+    # A fixed refusal is final at once, as is success.
+    $script:profileAttempts = 0
+    $script:pauses = 0
+    $result = Invoke-LocalProfileStep -Phase PROFILE -Pause { $script:pauses++ } -Attempt { $script:profileAttempts++; [pscustomobject]@{ ExitCode=12; Output='LOCAL_MARKER_MISMATCH' } }
+    if ($result.Output -cne 'LOCAL_MARKER_MISMATCH' -or $script:profileAttempts -ne 1 -or $script:pauses) { throw 'A fixed refusal must not be retried' }
+    # The person reads plain words in Polish or English; the code stands on its own line for technical support.
+    # Only a failure that passes by itself asks to try again; any other asks to install again or to contact support.
+    $failed = "Nie uda$([char]0x0142)o si$([char]0x0119) uruchomi$([char]0x0107) LeadYa."
+    $retryPolish = "$failed Spr$([char]0x00F3)buj ponownie za chwil$([char]0x0119)."
+    $reinstallPolish = "$failed Zainstaluj LeadYa ponownie. Je$([char]0x015B)li to nie pomo$([char]0x017C)e, skontaktuj si$([char]0x0119) z pomoc$([char]0x0105) techniczn$([char]0x0105)."
+    $retryEnglish = 'LeadYa could not start. Please try again in a moment.'
+    $reinstallEnglish = 'LeadYa could not start. Install LeadYa again. If that does not help, contact technical support.'
+    foreach ($case in @(
+        @('PROFILE', 'LOCAL_VALIDATION_FAILED', 'pl', $retryPolish, 'Kod dla pomocy technicznej:'),
+        @('PREPARE', 'LOCAL_JAVA_MEMORY', 'pl', $retryPolish, 'Kod dla pomocy technicznej:'),
+        @('PREPARE', 'LOCAL_JAVA_FAILED', 'pl', $reinstallPolish, 'Kod dla pomocy technicznej:'),
+        @('PACKAGE', 'LOCAL_PACKAGE_MISSING', 'pl', $reinstallPolish, 'Kod dla pomocy technicznej:'),
+        @('PROFILE', 'LOCAL_VALIDATION_FAILED', 'en', $retryEnglish, 'Code for technical support:'),
+        @('BOOTSTRAP', 'LOCAL_JAVA_MEMORY', 'de', $retryEnglish, 'Code for technical support:'),
+        @('PREPARE', 'LOCAL_JAVA_FAILED', '', $reinstallEnglish, 'Code for technical support:'),
+        @('PROFILE', 'LOCAL_MARKER_MISMATCH', 'en', $reinstallEnglish, 'Code for technical support:'))) {
+        $message = Get-LocalLaunchFailureMessage $case[0] $case[1] $case[2]
+        $expected = $case[3] + "`n`n" + $case[4] + "`n" + $case[0] + ': ' + $case[1]
+        if ($message -cne $expected) { throw "Failure message for $($case[1]) in '$($case[2])' changed: $message" }
+    }
+    $elevated = Get-LocalLaunchFailureMessage 'START' 'LOCAL_ELEVATED_RUNTIME' 'pl'
+    if ($elevated -notmatch 'nie jako administrator\.' -or -not $elevated.EndsWith("Kod dla pomocy technicznej:`nSTART: LOCAL_ELEVATED_RUNTIME")) { throw "Elevated message changed: $elevated" }
+    $elevated = Get-LocalLaunchFailureMessage 'START' 'LOCAL_ELEVATED_RUNTIME' 'en'
+    if ($elevated -notmatch 'not as administrator\.' -or -not $elevated.EndsWith("Code for technical support:`nSTART: LOCAL_ELEVATED_RUNTIME")) { throw "Elevated message changed: $elevated" }
+    # Production wiring: both profile calls of the validator go through the retry, and the dialog follows the UI language.
+    foreach ($mode in @('Runtime', 'Prepare')) {
+        $call = $tree.Find({ param($node)
+            $node -is [Management.Automation.Language.CommandAst] -and $node.InvocationOperator -eq 'Ampersand' -and
+            $node.Extent.Text -match ('-Mode ' + $mode + ' ')
+        }, $true)
+        if (-not $call) { throw "Missing $mode call of the validator" }
+        $ancestor = $call.Parent
+        while ($ancestor -and -not ($ancestor -is [Management.Automation.Language.CommandAst] -and $ancestor.GetCommandName() -eq 'Invoke-LocalProfileStep')) { $ancestor = $ancestor.Parent }
+        if (-not $ancestor) { throw "The $mode call of the validator must be inside the profile retry" }
+    }
+    $mainTry = $tree.EndBlock.Statements | Where-Object { $_ -is [Management.Automation.Language.TryStatementAst] } | Select-Object -Last 1
+    $failure = $mainTry.CatchClauses[0].Body.Extent.Text
+    if ($failure.IndexOf('(Get-UICulture).TwoLetterISOLanguageName') -lt 0 -or $failure.IndexOf('Get-LocalLaunchFailureMessage $stage $code $language') -lt 0 -or
+        $failure.IndexOf('if (-not $NoDialog') -lt 0) { throw 'The failure dialog must use the plain message in the UI language and keep -NoDialog' }
+    Write-Output 'PASS: actual hidden stderr OOM retry, Base64 stdout, Win32 memory retry, owner end, permanent refusal, late output, bounded pipes, timeout child cleanup, production wiring, held marker retry, plain failure message by code'
 } finally {
     if (Test-Path -LiteralPath $fixture) { Remove-Item -LiteralPath $fixture -Recurse -Force }
 }

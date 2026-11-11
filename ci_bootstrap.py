@@ -11,7 +11,7 @@ import urllib.request
 import zipfile
 
 LIMIT = 10_000_000
-PLUGINS = {'AccessControl.dll', 'INetC.dll', 'nsisunz.dll', 'ShellExecAsUser.dll'}
+PLUGINS = {'INetC.dll', 'nsisunz.dll'}
 
 
 def digest(data):
@@ -99,7 +99,7 @@ def copy_plugin(archive, entry, destination):
 def bootstrap(config, output, seven_zip):
     names = [p['name'] for p in config['plugins']]
     if len(names) != len(PLUGINS) or set(names) != PLUGINS:
-        raise ValueError('Exactly the four reviewed Unicode plugins are required')
+        raise ValueError('Exactly the two reviewed Unicode plugins are required')
     output.mkdir(parents=True, exist_ok=False)
     cache = output / 'archives'
     cache.mkdir()

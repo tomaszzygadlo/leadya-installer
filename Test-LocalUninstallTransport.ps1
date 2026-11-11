@@ -25,15 +25,6 @@ try {
     # ordinary-token guard, owner/deadline checks and fixed-file result exchange remain real.
     $helper = [IO.File]::ReadAllText((Join-Path $source 'UninstallLocalLeadYa.ps1'))
     $helper = $helper.Replace('[LeadYa.LocalUninstallFiles]::Downloads()', ("'" + $downloads.Replace("'", "''") + "'"))
-    $aclEvidence = @'
-$resultAcl = ([IO.FileInfo]::new($ResultFile)).GetAccessControl().GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier])
-$currentSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
-$writers = @($resultAcl | Where-Object { $_.AccessControlType -eq 'Allow' -and ([int]$_.FileSystemRights -band 2) } | ForEach-Object { $_.IdentityReference.Value })
-if ($currentSid -notin $writers -or @($writers | Where-Object { $_ -notin @($currentSid, 'S-1-5-18', 'S-1-5-32-544') }).Count) { throw 'LOCAL_UNINSTALL_RESULT_WRITERS' }
-$parentAcl = ([IO.DirectoryInfo]::new($PSScriptRoot)).GetAccessControl().GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier])
-if (@($parentAcl | Where-Object { $_.IdentityReference.Value -eq $currentSid -or $_.IdentityReference.Value -eq 'S-1-5-32-545' } | Where-Object { [int]$_.FileSystemRights -band 2 }).Count) { throw 'LOCAL_UNINSTALL_PARENT_WRITABLE' }
-'@
-    $helper = $helper.Replace("`$result = 'LOCAL_UNINSTALL_FAILED'", "`$result = 'LOCAL_UNINSTALL_FAILED'`n" + $aclEvidence)
     [IO.File]::WriteAllText((Join-Path $fixture 'UninstallLocalLeadYa.ps1'), $helper, [Text.UTF8Encoding]::new($false))
     $installer = [IO.File]::ReadAllText((Join-Path $source 'Leadya.nsi'))
     $callback = [regex]::Match($installer, '(?ms)^Function un\.CleanupLocalUser\r?\n.*?^FunctionEnd').Value
@@ -41,7 +32,7 @@ if (@($parentAcl | Where-Object { $_.IdentityReference.Value -eq $currentSid -or
     $nsi = @'
 Unicode true
 Name "LeadYa uninstall transport fixture"
-RequestExecutionLevel admin
+RequestExecutionLevel user
 SilentInstall silent
 SilentUnInstall silent
 OutFile "fixture.exe"
@@ -55,6 +46,7 @@ Var uninstallUserCommand
 Var uninstallDeadlineTick
 Var uninstallRemoveProfileState
 Var uninstallRemoveInstallersState
+Var LocalIdentityRoot
 @CALLBACK@
 Function un.onInit
   InitPluginsDir
@@ -63,6 +55,7 @@ Function un.onInit
   StrCpy $INSTDIR "@CODE@"
   StrCpy $uninstallRemoveProfileState 1
   StrCpy $uninstallRemoveInstallersState 1
+  StrCpy $LocalIdentityRoot ""
 FunctionEnd
 Section
   WriteUninstaller "$EXEDIR\Uninstall.exe"
@@ -76,15 +69,17 @@ SectionEnd
     $nsi = $nsi.Replace('@PLUGINS@', (Quote-Nsis $PluginDirectory)).Replace('@CODE@', (Quote-Nsis $codeRoot)).Replace('@CALLBACK@', $callback)
     [IO.File]::WriteAllText((Join-Path $fixture 'fixture.nsi'), $nsi, [Text.UTF8Encoding]::new($true))
     $build = Start-Process -FilePath $Compiler -ArgumentList ('/V2 "' + (Join-Path $fixture 'fixture.nsi') + '"') -WorkingDirectory $fixture -WindowStyle Hidden -PassThru
+    $buildHandle = $build.Handle
     if (-not $build.WaitForExit(15000) -or $build.ExitCode -ne 0) { throw 'Native fixture did not compile' }
     Copy-Item -LiteralPath (Join-Path $fixture 'fixture.exe') -Destination (Join-Path $downloads 'LeadyaInstaller (3).exe')
-    $make = Start-Process -FilePath (Join-Path $fixture 'fixture.exe') -ArgumentList '/S' -Verb RunAs -WindowStyle Hidden -PassThru
-    if (-not $make.WaitForExit(150000) -or $make.ExitCode -ne 0) { throw 'Elevated native uninstaller refused or timed out' }
+    $make = Start-Process -FilePath (Join-Path $fixture 'fixture.exe') -ArgumentList '/S' -WindowStyle Hidden -PassThru
+    $makeHandle = $make.Handle # PowerShell 5.1 returns no exit code unless the handle is cached while the process runs.
+    if (-not $make.WaitForExit(150000) -or $make.ExitCode -ne 0) { throw 'Native uninstaller refused or timed out' }
 
     foreach ($profile in $profiles) { if (Test-Path -LiteralPath $profile) { throw 'Selected disposable profile remains' } }
     if ((Test-Path -LiteralPath (Join-Path $downloads 'LeadyaInstaller (3).exe')) -or
         [IO.File]::ReadAllText((Join-Path $downloads 'unrelated.txt')) -cne '[TEST]-keep') { throw 'Download cleanup result is incorrect' }
-    Write-Output 'PASS: actual admin uninstaller callback, ordinary helper, both marked profiles and disposable installer removed, complete result returned'
+    Write-Output 'PASS: actual uninstaller callback, ordinary helper, both marked profiles and disposable installer removed, complete result returned'
 } finally {
     foreach ($profile in $profiles) {
         if (Test-Path -LiteralPath $profile) {

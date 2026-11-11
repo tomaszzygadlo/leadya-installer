@@ -65,6 +65,82 @@ try {
     if (-not (Test-Path -LiteralPath (Join-Path $outside 'bot_files/bot.properties'))) { throw 'Junction target changed' }
     [IO.Directory]::Delete((Join-Path $profile 'redirect'))
     Write-Output 'PASS: complete marked profile; no mutation on open file, foreign marker or junction'
+    $origin = 'https://hotfix.turbot.pro'
+    function Add-AdoptionGuard([string]$Root) {
+        [IO.File]::WriteAllText((Join-Path $Root 'leadya-adoption-guard-1.txt'), '[TEST]-guard')
+        New-Item -ItemType HardLink -Path (Join-Path $Root 'leadya-adoption-guard-2.txt') -Value (Join-Path $Root 'leadya-adoption-guard-1.txt') | Out-Null
+    }
+    function Test-GuardedRefusal([string]$Case, [string[]]$Profiles, [string]$Guarded, [string]$Expected) {
+        $outcome = 'accepted'
+        try { Invoke-LocalUserCleanup $Profiles $origin $null $true $false | Out-Null }
+        catch { $outcome = $_.Exception.ToString() }
+        $problems = @()
+        if ($outcome -notmatch $Expected) { $problems += 'expected ' + $Expected }
+        foreach ($name in @('leadya-adoption-guard-1.txt', 'leadya-adoption-guard-2.txt')) {
+            if (-not (Test-Path -LiteralPath (Join-Path $Guarded $name))) { $problems += 'lost ' + $name }
+        }
+        if ($problems.Count) { $script:guardFailures += ($Case + ': ' + ($problems -join ', ')) }
+    }
+    $script:guardFailures = @()
+    $target = New-TestProfile 'guard-target'
+    Add-AdoptionGuard $target
+    $redirected = Join-Path $fixture 'guard-junction'
+    New-Item -ItemType Junction -Path $redirected -Target $target | Out-Null
+    Test-GuardedRefusal 'profile replaced by a junction' @($redirected) $target 'LOCAL_UNINSTALL_REPARSE'
+    [IO.Directory]::Delete($redirected)
+    $ancestor = Join-Path $fixture 'guard-ancestor-target'
+    [IO.Directory]::CreateDirectory($ancestor) | Out-Null
+    $inside = Join-Path $ancestor 'profile'
+    [IO.Directory]::CreateDirectory($inside) | Out-Null
+    Add-AdoptionGuard $inside
+    $ancestorLink = Join-Path $fixture 'guard-ancestor-link'
+    New-Item -ItemType Junction -Path $ancestorLink -Target $ancestor | Out-Null
+    [IO.File]::WriteAllLines((Join-Path $inside 'leadya-local-install.txt'), @('LOCAL', (Join-Path $ancestorLink 'profile'), $origin))
+    Test-GuardedRefusal 'ancestor replaced by a junction' @((Join-Path $ancestorLink 'profile')) $inside 'LOCAL_UNINSTALL_REPARSE'
+    [IO.Directory]::Delete($ancestorLink)
+    $profile = New-TestProfile 'guard-locked'
+    Add-AdoptionGuard $profile
+    $locked = [IO.File]::Open((Join-Path $profile 'bot_files/browser/Cookies'), 'Open', 'ReadWrite', 'None')
+    try { Test-GuardedRefusal 'later refusal: open file' @($profile) $profile 'LOCAL_UNINSTALL_IN_USE' } finally { $locked.Dispose() }
+    $profile = New-TestProfile 'guard-foreign-marker'
+    Add-AdoptionGuard $profile
+    [IO.File]::WriteAllLines((Join-Path $profile 'leadya-local-install.txt'), @('LOCAL', $profile, 'https://other.example'))
+    Test-GuardedRefusal 'foreign marker' @($profile) $profile 'LOCAL_UNINSTALL_MARKER'
+    $profile = New-TestProfile 'guard-no-marker'
+    Add-AdoptionGuard $profile
+    [IO.File]::Delete((Join-Path $profile 'leadya-local-install.txt'))
+    Test-GuardedRefusal 'no marker' @($profile) $profile 'LOCAL_UNINSTALL_MARKER'
+    $firstGuarded = New-TestProfile 'guard-first-of-two'
+    Add-AdoptionGuard $firstGuarded
+    $secondLocked = New-TestProfile 'guard-second-of-two'
+    $locked = [IO.File]::Open((Join-Path $secondLocked 'bot_files/browser/Cookies'), 'Open', 'ReadWrite', 'None')
+    try { Test-GuardedRefusal 'second profile refused' @($firstGuarded, $secondLocked) $firstGuarded 'LOCAL_UNINSTALL_IN_USE' } finally { $locked.Dispose() }
+    $profile = New-TestProfile 'guard-expired-worker'
+    Add-AdoptionGuard $profile
+    $self = [Diagnostics.Process]::GetCurrentProcess()
+    try {
+        try { [LeadYa.LocalUninstallFiles]::ConfigureOwner($PID, $self.StartTime.ToFileTimeUtc(), $self.MainModule.FileName, [LeadYa.LocalUninstallFiles]::DeadlineIn(0)) } catch { }
+        Test-GuardedRefusal 'expired worker' @($profile) $profile 'LOCAL_UNINSTALL_DEADLINE'
+    } finally { [LeadYa.LocalUninstallFiles]::ClearOwner(); $self.Dispose() }
+    $profile = New-TestProfile 'guard-linked-elsewhere'
+    $keep = Join-Path $fixture 'guard-outside-file.txt'
+    [IO.File]::WriteAllText($keep, '[TEST]-outside')
+    New-Item -ItemType HardLink -Path (Join-Path $profile 'leadya-adoption-guard-1.txt') -Value $keep | Out-Null
+    try { Invoke-LocalUserCleanup @($profile) $origin $null $true $false | Out-Null; $script:guardFailures += 'guard linked to a foreign file: accepted' }
+    catch { if ($_.Exception.ToString() -notmatch 'LOCAL_UNINSTALL_PATH') { $script:guardFailures += 'guard linked to a foreign file: wrong refusal' } }
+    if (-not (Test-Path -LiteralPath (Join-Path $profile 'leadya-adoption-guard-1.txt'))) { $script:guardFailures += 'guard linked to a foreign file: name removed' }
+    $profile = New-TestProfile 'guard-name-elsewhere'
+    $keep = Join-Path $fixture 'guard-outside-file-2.txt'
+    [IO.File]::WriteAllText($keep, '[TEST]-outside')
+    New-Item -ItemType HardLink -Path (Join-Path $profile 'bot_files/leadya-adoption-guard-1.txt') -Value $keep | Out-Null
+    try { Invoke-LocalUserCleanup @($profile) $origin $null $true $false | Out-Null; $script:guardFailures += 'guard name below the profile root: accepted' }
+    catch { if ($_.Exception.ToString() -notmatch 'LOCAL_UNINSTALL_PATH') { $script:guardFailures += 'guard name below the profile root: wrong refusal' } }
+    $profile = New-TestProfile 'guard-removed-with-profile'
+    Add-AdoptionGuard $profile
+    Invoke-LocalUserCleanup @($profile) $origin $null $true $false | Out-Null
+    if (Test-Path -LiteralPath $profile) { $script:guardFailures += 'guarded profile was not removed' }
+    if ($script:guardFailures.Count) { throw ('Adoption guard: ' + ($script:guardFailures -join ' | ')) }
+    Write-Output 'PASS: adoption guards leave only with their profile, after every path, marker and process-owner check'
     $installerSource = Join-Path $fixture 'installer.exe'
     $script = 'Unicode true' + "`n" + 'Name "LeadYa disposable classification fixture"' + "`n" + 'RequestExecutionLevel user' + "`n" + 'OutFile "installer.exe"' + "`nSection`nSectionEnd`n"
     [IO.File]::WriteAllText((Join-Path $fixture 'installer.nsi'), $script)

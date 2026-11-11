@@ -1,5 +1,6 @@
 param(
     [string]$InstallDirectory,
+    [string]$IdentityRoot,
     [string]$PublicOrigin,
     [ValidateSet(0, 1)][int]$RemoveProfile = 1,
     [ValidateSet(0, 1)][int]$RemoveInstallers = 1,
@@ -27,6 +28,7 @@ namespace LeadYa {
     public static class LocalUninstallFiles {
         static SafeWaitHandle owner;
         static ulong deadline;
+        static readonly string[] AdoptionGuards = { "leadya-adoption-guard-1.txt", "leadya-adoption-guard-2.txt" };
         [StructLayout(LayoutKind.Sequential)] struct Info {
             public uint Attributes; public System.Runtime.InteropServices.ComTypes.FILETIME Created, Accessed, Written;
             public uint Volume, SizeHigh, SizeLow, Links, IndexHigh, IndexLow;
@@ -51,7 +53,7 @@ namespace LeadYa {
         [DllImport("kernel32.dll")] static extern ulong GetTickCount64();
         [DllImport("shell32.dll")] static extern int SHGetKnownFolderPath([MarshalAs(UnmanagedType.LPStruct)] Guid id, uint flags, IntPtr token, out IntPtr path);
         sealed class Node : IDisposable {
-            public SafeFileHandle Handle; public string Path; public uint Attributes;
+            public SafeFileHandle Handle; public string Path; public uint Attributes, Volume, IndexHigh, IndexLow, Links;
             public void Dispose() { Handle.Dispose(); }
         }
         public static void ClearOwner() { if (owner != null) { owner.Dispose(); owner=null; } }
@@ -77,20 +79,22 @@ namespace LeadYa {
             if (!Regex.IsMatch(path, @"^[A-Za-z]:\\") || path.Length <= 3 || path.Substring(2).Contains(":")) throw new IOException("LOCAL_UNINSTALL_PATH");
             return path;
         }
-        static Node Pin(string path, bool directory, bool deleting, bool reading) {
+        static Node Pin(string path, bool directory, bool deleting, bool reading) { return Pin(path, directory, deleting, reading, false); }
+        // The two names of the adoption guard are held open together, so each must allow the delete access of the other.
+        static Node Pin(string path, bool directory, bool deleting, bool reading, bool guard) {
             CheckOwner();
             uint access = 0x20080u | (deleting ? 0x10100u : 0u) | (reading ? 0x80000000u : 0u);
-            var handle = CreateFile(@"\\?\" + path, access, directory ? 3u : 1u, IntPtr.Zero, 3, 0x02200000, IntPtr.Zero);
+            var handle = CreateFile(@"\\?\" + path, access, directory ? 3u : guard ? 5u : 1u, IntPtr.Zero, 3, 0x02200000, IntPtr.Zero);
             if (handle.IsInvalid) { handle.Dispose(); throw new IOException("LOCAL_UNINSTALL_IN_USE"); }
             try {
                 Info info;
                 if (!GetFileInformationByHandle(handle, out info)) throw new IOException("LOCAL_UNINSTALL_IN_USE");
                 if ((info.Attributes & 0x400) != 0) throw new IOException("LOCAL_UNINSTALL_REPARSE");
-                if (((info.Attributes & 0x10) != 0) != directory || (!directory && info.Links != 1)) throw new IOException("LOCAL_UNINSTALL_PATH");
+                if (((info.Attributes & 0x10) != 0) != directory || (!directory && info.Links != 1 && !(guard && info.Links == 2))) throw new IOException("LOCAL_UNINSTALL_PATH");
                 var final = new StringBuilder(32768);
                 uint size = GetFinalPathNameByHandle(handle, final, (uint)final.Capacity, 0);
                 if (size == 0 || size >= final.Capacity || !String.Equals(final.ToString(), @"\\?\" + path, StringComparison.OrdinalIgnoreCase)) throw new IOException("LOCAL_UNINSTALL_PATH");
-                return new Node { Handle=handle, Path=path, Attributes=info.Attributes };
+                return new Node { Handle=handle, Path=path, Attributes=info.Attributes, Volume=info.Volume, IndexHigh=info.IndexHigh, IndexLow=info.IndexLow, Links=info.Links };
             } catch { handle.Dispose(); throw; }
         }
         static void Ancestors(string root, List<Node> held) {
@@ -98,14 +102,27 @@ namespace LeadYa {
             for (var directory = Directory.GetParent(root); directory != null; directory = directory.Parent) chain.Push(directory.FullName);
             while (chain.Count != 0) held.Add(Pin(chain.Pop(), true, false, false));
         }
-        static void Gather(string root, List<Node> nodes) {
+        // Only the two guard names directly under a profile root may be hard links; the released uninstaller refuses them all.
+        static void Gather(string path, string profile, List<Node> nodes) {
             CheckOwner();
             if (nodes.Count >= 200000) throw new IOException("LOCAL_UNINSTALL_TOO_LARGE");
-            var attributes = File.GetAttributes(@"\\?\" + root);
+            var attributes = File.GetAttributes(@"\\?\" + path);
             bool directory = (attributes & FileAttributes.Directory) != 0;
-            var node = Pin(root, directory, true, !directory && System.IO.Path.GetFileName(root) == "leadya-local-install.txt");
+            string name = System.IO.Path.GetFileName(path);
+            bool guard = !directory && Array.IndexOf(AdoptionGuards, name) >= 0 && String.Equals(System.IO.Path.GetDirectoryName(path), profile, StringComparison.OrdinalIgnoreCase);
+            var node = Pin(path, directory, true, !directory && name == "leadya-local-install.txt", guard);
             nodes.Add(node);
-            if (directory) foreach (string child in Directory.EnumerateFileSystemEntries(@"\\?\" + root)) Gather(child.Substring(4), nodes);
+            if (directory) foreach (string child in Directory.EnumerateFileSystemEntries(@"\\?\" + path)) Gather(child.Substring(4), profile, nodes);
+        }
+        static Node FindGuard(List<Node> nodes, string root, int index) {
+            string path = System.IO.Path.Combine(root, AdoptionGuards[index]);
+            return nodes.Find(node => String.Equals(node.Path, path, StringComparison.OrdinalIgnoreCase));
+        }
+        // A guard with a second name is accepted only when that name is the other guard of this profile.
+        static void RequireGuardPair(List<Node> nodes, string root) {
+            Node first = FindGuard(nodes, root, 0), second = FindGuard(nodes, root, 1);
+            if ((first == null || first.Links == 1) && (second == null || second.Links == 1)) return;
+            if (first == null || second == null || first.Volume != second.Volume || first.IndexHigh != second.IndexHigh || first.IndexLow != second.IndexLow) throw new IOException("LOCAL_UNINSTALL_PATH");
         }
         static void Delete(Node node) {
             CheckOwner();
@@ -135,7 +152,8 @@ namespace LeadYa {
                     catch (FileNotFoundException) { continue; }
                     catch (DirectoryNotFoundException) { continue; }
                     Ancestors(root, ancestors);
-                    Gather(root, nodes);
+                    Gather(root, root, nodes);
+                    RequireGuardPair(nodes, root);
                     Node rootNode = nodes.Find(node => String.Equals(node.Path, root, StringComparison.OrdinalIgnoreCase));
                     string marker = System.IO.Path.Combine(root, "leadya-local-install.txt");
                     Node proof = nodes.Find(node => String.Equals(node.Path, marker, StringComparison.OrdinalIgnoreCase));
@@ -241,15 +259,18 @@ try {
     $uri = [Uri]$PublicOrigin
     if ($root.Length -le 3 -or $root -notmatch '^[A-Za-z]:\\' -or -not $uri.IsAbsoluteUri -or $uri.UserInfo -or $uri.Query -or $uri.Fragment -or $uri.AbsolutePath -ne '/' -or
         ($uri.Scheme -ne 'https' -and -not ($uri.Scheme -eq 'http' -and $uri.IsLoopback))) { throw 'LOCAL_UNINSTALL_BINDING' }
+    # A computer moved from the old machine-wide install keeps the identity of its original program folder.
+    $identity = if ($IdentityRoot) { [IO.Path]::GetFullPath($IdentityRoot).TrimEnd('\') } else { $root }
+    if ($identity.Length -le 3 -or $identity -notmatch '^[A-Za-z]:\\') { throw 'LOCAL_UNINSTALL_BINDING' }
     $hasher = [Security.Cryptography.SHA256]::Create()
-    try { $id = ([BitConverter]::ToString($hasher.ComputeHash([Text.Encoding]::UTF8.GetBytes($root.ToUpperInvariant() + "`n" + $PublicOrigin)))).Replace('-', '').ToLowerInvariant() }
+    try { $id = ([BitConverter]::ToString($hasher.ComputeHash([Text.Encoding]::UTF8.GetBytes($identity.ToUpperInvariant() + "`n" + $PublicOrigin)))).Replace('-', '').ToLowerInvariant() }
     finally { $hasher.Dispose() }
     $profiles = @((Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) ('LeadYa/installations/' + $id)),
         (Join-Path ([Environment]::GetFolderPath('UserProfile')) ('.leadya-client/installations/' + $id)))
     $downloads = if ($RemoveInstallers) { [LeadYa.LocalUninstallFiles]::Downloads() } else { $null }
     $deleted = Invoke-LocalUserCleanup $profiles $PublicOrigin $downloads ([bool]$RemoveProfile) ([bool]$RemoveInstallers)
     $shell = New-Object -ComObject WScript.Shell
-    $package = Join-Path $(if ($env:ProgramW6432) { $env:ProgramW6432 } else { $env:ProgramFiles }) ('LeadYaInstallerPackages/' + $id)
+    $package = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) ('LeadYa/packages/' + $id)
     $links = @((Join-Path ([Environment]::GetFolderPath('Desktop')) 'Leadya.lnk'),
         (Join-Path ([Environment]::GetFolderPath('Startup')) 'Leadya.lnk'),
         (Join-Path ([Environment]::GetFolderPath('Programs')) 'Leadya/Leadya.lnk'),
@@ -278,7 +299,7 @@ try {
 } finally {
     [LeadYa.LocalUninstallFiles]::ClearOwner()
     if ($ResultFile -and [IO.Path]::GetFullPath($ResultFile) -ieq (Join-Path $PSScriptRoot 'leadya-user-cleanup-result.txt')) {
-        # The administrator creates this fixed writable result file in a read-only directory.
+        # The uninstaller created this fixed result file before starting this helper.
         # A completion suffix lets NSIS distinguish a complete result from a partial write.
         for ($attempt = 0; $attempt -lt 20; $attempt++) {
             try { $stream = [IO.File]::Open($ResultFile, 'Open', 'Write', 'Read'); break }

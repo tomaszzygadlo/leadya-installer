@@ -146,7 +146,7 @@ class BuildBoundaryTests(unittest.TestCase):
             for path in (source, destination, plugins): path.mkdir()
             (source / 'Polish.nsh').write_bytes(b'language source')
             (source / 'installer-inputs.json').write_text(json.dumps({'Polish.nsh':'Language/Polish.nsh'}))
-            for name in ('AccessControl.dll', 'INetC.dll', 'nsisunz.dll', 'ShellExecAsUser.dll'):
+            for name in ('INetC.dll', 'nsisunz.dll'):
                 (plugins / name).write_bytes(b'fixture; never loaded')
             self.assertEqual(destination, build.stage_inputs(source, destination, plugins))
             self.assertEqual(b'language source', (destination / 'Language/Polish.nsh').read_bytes())

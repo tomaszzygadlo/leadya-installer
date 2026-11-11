@@ -14,8 +14,6 @@ OutFile "../docker/botserver/installers/LeadyaInstaller-TESTOWY_LEADYA_APP.exe"
 !define TEMP1 $R0 ;Temp variable
 
 Var currentLogFileName
-Var EmailEncoded
-Var PasswordEncoded
 Var CheckingProgramVersion
 Var CheckingProgramVersionFile
 Var CheckingProgramVersionedJar
@@ -32,7 +30,6 @@ Var uninstallOwnerTime
 Var uninstallOwnerExecutable
 Var uninstallUserCommand
 Var uninstallDeadlineTick
-Var LocalOperatorSid
 Var LocalValidationMode
 Var LocalValidationJar
 Var LocalValidationResult
@@ -42,7 +39,6 @@ Var PreviousInstallComplete
 Var PreviousInstallJar
 Var LocalInstallationVerified
 Var LocalRuntimeHome
-Var LocalCodeHome
 Var LocalTrustedHome
 Var LocalValidationSeed
 Var LocalCodeCleanup
@@ -52,17 +48,26 @@ Var LocalDirectoryRestore
 Var LocalDirectorySpace
 Var LocalDirectorySpaceReady
 Var LocalFailureCode
+Var LocalIdentityRoot
+Var LocalIdentityAdopted
+Var LocalAdoptedProfile
+Var LocalValidationInput
+Var LocalDestinationAccepted
+Var PreviousInstallIdentity
+Var LocalShowRetry
 
-!define LEADYA_DEFAULT_INSTALL_DIR "$PROGRAMFILES64\Leadya"
+!define LEADYA_DEFAULT_INSTALL_DIR "$LOCALAPPDATA\Programs\Leadya"
 !define LEADYA_LOCAL_INSTALL_SIZE_KB 15360
 !define /math LEADYA_LOCAL_INSTALL_SIZE_BYTES ${LEADYA_LOCAL_INSTALL_SIZE_KB} * 1024
 !define /math LEADYA_LOCAL_INSTALL_SIZE_MB ${LEADYA_LOCAL_INSTALL_SIZE_KB} / 1024
 
 !define LOCAL_INSTALL_STATE_KEY "Software\Leadya\Server"
-!define LEADYA_VALIDATOR_SHA256 "BA134851784D9B0F64FB261A87EFC3F76487A717CA08AB47259F056FBB5838C9"
-!define LEADYA_TRUSTED_DOWNLOADS
-; Elevated downloads use an admin-owned package, never a writable code folder or per-user runtime.
-!define LEADYA_INSTALL_DOWNLOAD_DIR "$LocalTrustedHome"
+!define LOCAL_UNINSTALL_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\Leadya"
+; The entry written by the old machine-wide installer. It is only read, to find a computer that must keep its profile.
+!define LOCAL_LEGACY_UNINSTALL 'HKLM "${LOCAL_UNINSTALL_KEY}"'
+!define LEADYA_CHROME_DOWNLOAD_PAGE "https://www.google.com/chrome/"
+!define LEADYA_VALIDATOR_SHA256 "EB833E05B35ACA063CA749CD329E8EBADFEE180DDDC86FB6BFC5C2CC8F7E5D78"
+; Downloads and logs stay in this user's private package, never in the chosen code folder.
 !define LEADYA_INSTALL_LOG_DIR "$LocalTrustedHome"
 
 Unicode True
@@ -75,9 +80,6 @@ Unicode True
 ;General
 
   !define chromium_ver "142"
-
-  !define env_hklm 'HKLM "SYSTEM\CurrentControlSet\Control\Session Manager\Environment"'
-  !define env_hkcu 'HKCU "Environment"'
 
   ;Name and file
   Name "Leadya"
@@ -99,8 +101,8 @@ Unicode True
 
   ; A remembered path is selected only after completed-install validation in .onInit.
 
-  ;Request application privileges for Windows Vista
-  RequestExecutionLevel admin
+  ; Everything is installed into this user's own folders, so administrator rights are never requested.
+  RequestExecutionLevel user
 
 ;--------------------------------
 ;Interface Settings
@@ -124,9 +126,9 @@ Unicode True
   !define MUI_FINISHPAGE_RUN
   !define MUI_FINISHPAGE_RUN_FUNCTION RunInstalledLocalApplication
   !define MUI_FINISHPAGE_SHOWREADME ""
-  !define MUI_FINISHPAGE_SHOWREADME_TEXT "Zainstaluj też Google Chrome"
+  !define MUI_FINISHPAGE_SHOWREADME_TEXT "$(ChromeFinishOption)"
   !define MUI_FINISHPAGE_SHOWREADME_NOTCHECKED
-  !define MUI_FINISHPAGE_SHOWREADME_FUNCTION InstallOptionalGoogleChrome
+  !define MUI_FINISHPAGE_SHOWREADME_FUNCTION OpenGoogleChromeDownloadPage
   !define MUI_PAGE_CUSTOMFUNCTION_SHOW ConfigureChromeFinishPage
   !insertmacro MUI_PAGE_FINISH
 
@@ -171,24 +173,43 @@ ShowInstDetails show
   !include "Language\Ukrainian.nsh"
   !include "Language\Czech.nsh"
 
-!macro LocalValidationMessages LANG DESTINATION FAILED SUPPORT
+!macro LocalValidationMessages LANG DESTINATION FAILED SUPPORT ELEVATED
   LangString LocalDestinationUnsafe ${LANG} "${DESTINATION}"
   LangString LocalInstallationFailed ${LANG} "${FAILED}"
   LangString LocalSupportCode ${LANG} "${SUPPORT}"
+  LangString LocalRunNormally ${LANG} "${ELEVATED}"
 !macroend
 !define LEADYA_FAILED_PL "Nie udało się dokończyć instalacji LeadYa. Twoje logowanie i ustawienia LeadYa są zachowane.$\r$\n$\r$\nUruchom instalator jeszcze raz. Jeśli ten komunikat wróci, zrób zdjęcie tego okna i wyślij je do nas."
 !define LEADYA_FAILED_EN "LeadYa could not finish the installation. Your LeadYa sign-in and settings are kept.$\r$\n$\r$\nRun the installer again. If this message comes back, take a photo of this window and send it to us."
-!define LEADYA_UNSAFE_EN "This folder cannot safely host the application. Choose a location in Program Files or your private user profile."
-!insertmacro LocalValidationMessages ${LANG_POLISH} "Nie można bezpiecznie zainstalować programu w tym folderze. Wybierz lokalizację w Program Files lub prywatnym profilu użytkownika." "${LEADYA_FAILED_PL}" "Kod dla pomocy technicznej:"
-!insertmacro LocalValidationMessages ${LANG_ENGLISH} "${LEADYA_UNSAFE_EN}" "${LEADYA_FAILED_EN}" "Code for technical support:"
-!insertmacro LocalValidationMessages ${LANG_GERMAN} "${LEADYA_UNSAFE_EN}" "${LEADYA_FAILED_EN}" "Code for technical support:"
-!insertmacro LocalValidationMessages ${LANG_RUSSIAN} "${LEADYA_UNSAFE_EN}" "${LEADYA_FAILED_EN}" "Code for technical support:"
-!insertmacro LocalValidationMessages ${LANG_SPANISH} "${LEADYA_UNSAFE_EN}" "${LEADYA_FAILED_EN}" "Code for technical support:"
-!insertmacro LocalValidationMessages ${LANG_ITALIAN} "${LEADYA_UNSAFE_EN}" "${LEADYA_FAILED_EN}" "Code for technical support:"
-!insertmacro LocalValidationMessages ${LANG_UKRAINIAN} "${LEADYA_UNSAFE_EN}" "${LEADYA_FAILED_EN}" "Code for technical support:"
-!insertmacro LocalValidationMessages ${LANG_CZECH} "${LEADYA_UNSAFE_EN}" "${LEADYA_FAILED_EN}" "Code for technical support:"
+!define LEADYA_SUPPORT_EN "Code for technical support:"
+!insertmacro LocalValidationMessages ${LANG_POLISH} "LeadYa nie może zainstalować się w tym folderze. Wybierz inny folder albo zostaw ten, który proponujemy." "${LEADYA_FAILED_PL}" "Kod dla pomocy technicznej:" "Uruchom instalator zwyczajnie, klikając go dwa razy. Nie wybieraj opcji Uruchom jako administrator."
+!insertmacro LocalValidationMessages ${LANG_ENGLISH} "LeadYa cannot be installed in this folder. Choose another folder, or keep the one we suggest." "${LEADYA_FAILED_EN}" "${LEADYA_SUPPORT_EN}" "Start the installer the normal way, by double-clicking it. Do not choose Run as administrator."
+!insertmacro LocalValidationMessages ${LANG_GERMAN} "LeadYa kann nicht in diesem Ordner installiert werden. Wählen Sie einen anderen Ordner oder behalten Sie den vorgeschlagenen." "${LEADYA_FAILED_EN}" "${LEADYA_SUPPORT_EN}" "Starten Sie das Installationsprogramm ganz normal mit einem Doppelklick. Wählen Sie nicht Als Administrator ausführen."
+!insertmacro LocalValidationMessages ${LANG_RUSSIAN} "LeadYa нельзя установить в эту папку. Выберите другую папку или оставьте предложенную." "${LEADYA_FAILED_EN}" "${LEADYA_SUPPORT_EN}" "Запустите установщик как обычно, двойным щелчком. Не выбирайте пункт Запуск от имени администратора."
+!insertmacro LocalValidationMessages ${LANG_SPANISH} "LeadYa no se puede instalar en esta carpeta. Elige otra carpeta o deja la que te proponemos." "${LEADYA_FAILED_EN}" "${LEADYA_SUPPORT_EN}" "Abre el instalador de la forma normal, con doble clic. No elijas Ejecutar como administrador."
+!insertmacro LocalValidationMessages ${LANG_ITALIAN} "LeadYa non può essere installato in questa cartella. Scegli un'altra cartella o lascia quella proposta." "${LEADYA_FAILED_EN}" "${LEADYA_SUPPORT_EN}" "Avvia il programma di installazione nel modo normale, con un doppio clic. Non scegliere Esegui come amministratore."
+!insertmacro LocalValidationMessages ${LANG_UKRAINIAN} "LeadYa не можна встановити в цю папку. Виберіть іншу папку або залиште запропоновану." "${LEADYA_FAILED_EN}" "${LEADYA_SUPPORT_EN}" "Запустіть інсталятор як зазвичай, подвійним клацанням. Не вибирайте пункт Запуск від імені адміністратора."
+!insertmacro LocalValidationMessages ${LANG_CZECH} "LeadYa nelze nainstalovat do této složky. Vyberte jinou složku nebo nechte tu, kterou navrhujeme." "${LEADYA_FAILED_EN}" "${LEADYA_SUPPORT_EN}" "Spusťte instalační program normálně dvojitým kliknutím. Nevybírejte Spustit jako správce."
 
 ; BEGIN LOCAL INSTALL COMPLETION
+; The installers of every address share HKCU\Software\Leadya\Server. The identity and the adoption stop carry the
+; address in their value name, and a value of another address is never read or changed. A value written before,
+; without an address, is still read as before. The identity of that kind is never changed; a stop of that kind is
+; forgotten only when it names this installer's package, whose id already includes the address.
+!define LOCAL_IDENTITY_VALUE "IdentityRoot@${public_origin}"
+!define LOCAL_LEGACY_IDENTITY_VALUE "IdentityRoot"
+!define LOCAL_ADOPT_STOPPED_VALUE "AdoptStopped@${public_origin}"
+!define LOCAL_LEGACY_ADOPT_STOPPED_VALUE "AdoptStopped"
+; The saved installation folder whose check stopped once for a retry; the same stop twice in a row gives way.
+!define LOCAL_RESOLVE_STOPPED_VALUE "ResolveStopped@${public_origin}"
+; Forgets the adoption stop of the old package whose id is in $2; $1 is overwritten.
+!macro ForgetLocalAdoptionStop
+  DeleteRegValue HKCU "${LOCAL_INSTALL_STATE_KEY}" "${LOCAL_ADOPT_STOPPED_VALUE}"
+  ReadRegStr $1 HKCU "${LOCAL_INSTALL_STATE_KEY}" "${LOCAL_LEGACY_ADOPT_STOPPED_VALUE}"
+  StrCmp $1 $2 0 +2
+  DeleteRegValue HKCU "${LOCAL_INSTALL_STATE_KEY}" "${LOCAL_LEGACY_ADOPT_STOPPED_VALUE}"
+  ClearErrors
+!macroend
 !macro ValidatorEnvironment name value failure
   System::Call 'kernel32::SetEnvironmentVariableW(w "${name}", w "${value}") i .r0'
   StrCmp $0 "0" ${failure}
@@ -209,9 +230,11 @@ ShowInstDetails show
   !insertmacro ValidatorEnvironment LY6 "$LocalRuntimeHome" ${suffix}ValidatorFailed
   !insertmacro ValidatorEnvironment LY7 "$LocalValidationSeed" ${suffix}ValidatorFailed
   !insertmacro ValidatorEnvironment LY8 "$CheckingProgramDownloadFile" ${suffix}ValidatorFailed
+  !insertmacro ValidatorEnvironment LY9 "$LocalValidationInput" ${suffix}ValidatorFailed
+  !insertmacro ValidatorEnvironment LY10 "$LocalIdentityRoot" ${suffix}ValidatorFailed
   ; ASCII envelope avoids nsExec's ANSI conversion of Unicode installation paths.
   ; The end marker refuses a truncated stack value instead of accepting a shorter path.
-  nsExec::ExecToStack /TIMEOUT=60000 `"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -Command "$$ErrorActionPreference='Stop';$$e=12;try{$$f=[IO.File]::Open($$env:LY0,3,1,1);$$h=[Security.Cryptography.SHA256]::Create();if(([BitConverter]::ToString($$h.ComputeHash($$f))-replace'-')-ne'${LEADYA_VALIDATOR_SHA256}'){throw 'HASH'};$$f.Position=0;$$r=[IO.StreamReader]::new($$f,[Text.Encoding]::UTF8,$$true,4096,$$true);$$b=[ScriptBlock]::Create($$r.ReadToEnd());& $$b $$env:LY1 $$env:LY2 $$env:LY3 $$env:LY4 $$env:LY5 $$env:LY6 $$env:LY7 $$env:LY8 $$true;$$e=$$LASTEXITCODE}catch{[Console]::Out.Write('LYV1:'+[Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes('LOCAL_VALIDATOR_REFUSED'))+':END')}finally{if($$r){$$r.Dispose()};if($$f){$$f.Dispose()};if($$h){$$h.Dispose()}};exit $$e"`
+  nsExec::ExecToStack /TIMEOUT=60000 `"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -Command "$$ErrorActionPreference='Stop';$$e=12;try{$$f=[IO.File]::Open($$env:LY0,3,1,1);$$h=[Security.Cryptography.SHA256]::Create();if(([BitConverter]::ToString($$h.ComputeHash($$f))-replace'-')-ne'${LEADYA_VALIDATOR_SHA256}'){throw 'HASH'};$$f.Position=0;$$r=[IO.StreamReader]::new($$f,[Text.Encoding]::UTF8,$$true,4096,$$true);$$b=[ScriptBlock]::Create($$r.ReadToEnd());& $$b $$env:LY1 $$env:LY2 $$env:LY3 $$env:LY4 $$env:LY5 $$env:LY6 $$env:LY7 $$env:LY8 $$true $$env:LY9 $$env:LY10;$$e=$$LASTEXITCODE}catch{[Console]::Out.Write('LYV1:'+[Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes('LOCAL_VALIDATOR_REFUSED'))+':END')}finally{if($$r){$$r.Dispose()};if($$f){$$f.Dispose()};if($$h){$$h.Dispose()}};exit $$e"`
   Pop $LocalValidationResult
   Pop $LocalValidationOutput
   StrCpy $0 $LocalValidationOutput 5
@@ -285,6 +308,15 @@ Function ShowLocalInstallationFailure
   ${LogLine} "(Failure) $LocalValidationMode $LocalValidationResult $LocalFailureCode"
   LocalFailureShow:
   DetailPrint "$(LocalSupportCode) $LocalFailureCode ($LocalValidationMode)"
+  StrCmp $LocalFailureCode "LOCAL_ELEVATED_RUNTIME" 0 LocalFailureAdoption
+  MessageBox MB_OK|MB_ICONEXCLAMATION "$(LocalRunNormally)$\r$\n$\r$\n$(LocalSupportCode) $LocalFailureCode" /SD IDOK
+  Return
+  LocalFailureAdoption:
+  ; A stop for a retry: nothing was installed yet; the person only has to close the installer and start it once more.
+  StrCmp $LocalShowRetry "1" 0 LocalFailureGeneral
+  MessageBox MB_OK|MB_ICONEXCLAMATION "$(LocalAdoptionRetry)$\r$\n$\r$\n$(LocalSupportCode) $LocalFailureCode ($LocalValidationMode)" /SD IDOK
+  Return
+  LocalFailureGeneral:
   MessageBox MB_OK|MB_ICONEXCLAMATION "$(LocalInstallationFailed)$\r$\n$\r$\n$(LocalSupportCode) $LocalFailureCode ($LocalValidationMode)" /SD IDOK
 FunctionEnd
 
@@ -319,7 +351,10 @@ Function TryResolveLocalRuntimeHome
   Goto LocalCodeTrimSeparator
   LocalCodePathReady:
   StrCpy $LocalValidationMode "Runtime"
+  ; A profile adopted in this run binds the runtime; otherwise the runtime resolution chooses.
+  StrCpy $LocalValidationInput $LocalAdoptedProfile
   Call ValidateLocalInstallation
+  StrCpy $LocalValidationInput ""
   StrCmp $LocalValidationResult "0" 0 LocalRuntimeResolutionUnavailable
   ${StrRep} $LocalRuntimeHome $LocalValidationOutput "$\r" ""
   ${StrRep} $LocalRuntimeHome $LocalRuntimeHome "$\n" ""
@@ -352,6 +387,84 @@ Function ResolveLocalRuntimeHome
   Call ShowLocalInstallationFailure
   SetErrorLevel 12
   Quit
+FunctionEnd
+
+Function ResolveLocalIdentity
+  ; A computer moved from the old Program Files install keeps its profile through that program's identity.
+  ; The current user's own earlier choice wins, because the old uninstaller may have been used since.
+  StrCpy $LocalIdentityAdopted "0"
+  StrCpy $LocalAdoptedProfile ""
+  ReadRegStr $LocalIdentityRoot HKCU "${LOCAL_INSTALL_STATE_KEY}" "${LOCAL_IDENTITY_VALUE}"
+  StrCmp $LocalIdentityRoot "" 0 LocalIdentitySaved
+  ReadRegStr $LocalIdentityRoot HKCU "${LOCAL_INSTALL_STATE_KEY}" "${LOCAL_LEGACY_IDENTITY_VALUE}"
+  StrCmp $LocalIdentityRoot "" LocalIdentityAdoption
+  LocalIdentitySaved:
+  ; A saved identity is dropped only when no profile location of it holds the marker any more (a profile deleted
+  ; outside the uninstaller). Any other answer keeps it; the runtime resolution then reports its own code.
+  StrCpy $LocalValidationMode "Identity"
+  Call ValidateLocalInstallation
+  StrCmp $LocalValidationResult "0" LocalIdentityReady
+  ${StrRep} $0 $LocalValidationOutput "$\r" ""
+  ${StrRep} $0 $0 "$\n" ""
+  StrCmp $0 "LOCAL_IDENTITY_PROFILE_GONE" 0 LocalIdentityReady
+  StrCpy $LocalIdentityRoot ""
+  LocalIdentityAdoption:
+  ClearErrors
+  ReadRegStr $0 ${LOCAL_LEGACY_UNINSTALL} "UninstallString"
+  IfErrors LocalIdentityReady
+  StrCpy $1 $0 1
+  StrCmp $1 '"' 0 LocalIdentityReady
+  StrCpy $1 $0 15 -15
+  StrCmp $1 '\Uninstall.exe"' 0 LocalIdentityReady
+  StrCpy $LocalValidationInput $0 -15 1
+  StrCpy $LocalValidationMode "Adopt"
+  Call ValidateLocalInstallation
+  ; The old package id names a stop, so the same stop twice in a row can give way.
+  StrCpy $2 $LocalValidationInput "" -64
+  StrCpy $LocalValidationInput ""
+  ${StrRep} $0 $LocalValidationOutput "$\r" ""
+  ${StrRep} $0 $0 "$\n" ""
+  StrCmp $LocalValidationResult "0" LocalIdentityAdopted
+  ; Only a failure that a retry can clear stops here: a read error, or a validator that timed out or was refused.
+  ; Nothing to adopt, or a package or profile that the launcher could not use either, gives a fresh identity;
+  ; the old profile stays on disk untouched, and an earlier stop is over.
+  StrCmp $0 "LOCAL_VALIDATION_FAILED" LocalIdentityRetry
+  StrCmp $0 "LOCAL_VALIDATOR_REFUSED" LocalIdentityRetry
+  !insertmacro ForgetLocalAdoptionStop
+  Goto LocalIdentityReady
+  LocalIdentityRetry:
+  ReadRegStr $1 HKCU "${LOCAL_INSTALL_STATE_KEY}" "${LOCAL_ADOPT_STOPPED_VALUE}"
+  StrCmp $1 $2 LocalIdentityGiveWay
+  ReadRegStr $1 HKCU "${LOCAL_INSTALL_STATE_KEY}" "${LOCAL_LEGACY_ADOPT_STOPPED_VALUE}"
+  StrCmp $1 $2 0 LocalIdentityStop
+  LocalIdentityGiveWay:
+  ; The second stop on the same package must not block the computer for good.
+  !insertmacro ForgetLocalAdoptionStop
+  Goto LocalIdentityReady
+  LocalIdentityStop:
+  WriteRegStr HKCU "${LOCAL_INSTALL_STATE_KEY}" "${LOCAL_ADOPT_STOPPED_VALUE}" $2
+  StrCpy $LocalShowRetry "1"
+  Call ShowLocalInstallationFailure
+  SetErrorLevel 12
+  Quit
+  LocalIdentityAdopted:
+  ; "<identity>|<profile>": the guard at the commit protects exactly the profile Adopt verified.
+  StrCpy $LocalIdentityRoot $0
+  StrCpy $3 0
+  LocalIdentitySplit:
+  StrCpy $4 $0 1 $3
+  StrCmp $4 "" LocalIdentitySplitDone
+  StrCmp $4 "|" 0 +5
+  StrCpy $LocalIdentityRoot $0 $3
+  IntOp $3 $3 + 1
+  StrCpy $LocalAdoptedProfile $0 "" $3
+  Goto LocalIdentitySplitDone
+  IntOp $3 $3 + 1
+  Goto LocalIdentitySplit
+  LocalIdentitySplitDone:
+  StrCpy $LocalIdentityAdopted "1"
+  !insertmacro ForgetLocalAdoptionStop
+  LocalIdentityReady:
 FunctionEnd
 
 ; BEGIN LOCAL DIRECTORY PAGE
@@ -485,15 +598,21 @@ FunctionEnd
 ; END LOCAL DIRECTORY PAGE
 
 Function RequireLocalDestination
+  ; Leaving the page and starting the section check the same folder; once is enough.
+  StrCmp $LocalDestinationAccepted $INSTDIR LocalDestinationReady
   ; The directory page can change $INSTDIR after .onInit selected the initial destination.
   Call TryResolveLocalRuntimeHome
   StrCmp $LocalValidationResult "0" 0 LocalDestinationRefused
   StrCpy $LocalValidationMode "Destination"
   Call ValidateLocalInstallation
-  StrCmp $LocalValidationResult "0" LocalDestinationReady
+  StrCmp $LocalValidationResult "0" LocalDestinationAllowed
   LocalDestinationRefused:
-  MessageBox MB_OK|MB_ICONEXCLAMATION "$(LocalDestinationUnsafe)$\r$\n$INSTDIR" /SD IDOK
+  ${StrRep} $LocalFailureCode $LocalValidationOutput "$\r" ""
+  ${StrRep} $LocalFailureCode $LocalFailureCode "$\n" ""
+  MessageBox MB_OK|MB_ICONEXCLAMATION "$(LocalDestinationUnsafe)$\r$\n$INSTDIR$\r$\n$\r$\n$(LocalSupportCode) $LocalFailureCode" /SD IDOK
   Abort
+  LocalDestinationAllowed:
+  StrCpy $LocalDestinationAccepted $INSTDIR
   LocalDestinationReady:
 FunctionEnd
 
@@ -507,52 +626,79 @@ Function SelectCompletedLocalInstallation
   ReadRegStr $LocalValidationJar HKCU "${LOCAL_INSTALL_STATE_KEY}" "CheckingProgramJar"
   StrCpy $INSTDIR $1
   Call TryResolveLocalRuntimeHome
-  StrCmp $LocalValidationResult "0" 0 LocalSelectionDefault
+  StrCmp $LocalValidationResult "0" 0 LocalSelectionFailed
   StrCpy $LocalValidationMode "Installable"
   Call ValidateLocalInstallation
-  StrCmp $LocalValidationResult "0" LocalSelectionDone
+  StrCmp $LocalValidationResult "0" LocalSelectionKept
+  LocalSelectionFailed:
+  ; Only a failure that a retry can clear stops here: a read error (a scanner holding a file), a validator that
+  ; timed out or was refused, or too little free memory for Java. The saved folder then stays for the next run.
+  ; A lasting defect of the saved folder or its profile chooses the default folder at once, as does the same stop
+  ; twice in a row.
+  ${StrRep} $0 $LocalValidationOutput "$\r" ""
+  ${StrRep} $0 $0 "$\n" ""
+  StrCmp $0 "LOCAL_VALIDATION_FAILED" LocalSelectionRetry
+  StrCmp $0 "LOCAL_VALIDATOR_REFUSED" LocalSelectionRetry
+  StrCmp $0 "LOCAL_JAVA_MEMORY" LocalSelectionRetry
+  ; A damaged package (a file an antivirus program quarantined) is rebuilt by installing into the same folder:
+  ; PackagePrepare and this installer's section write it again. Outside Program Files the folder is the identity, so
+  ; the default folder would start with an empty profile. The folder is kept only when it has a profile to keep and
+  ; this user can still install there; a bare remembered path never becomes the install folder.
+  StrCmp $0 "LOCAL_PACKAGE_MISSING" LocalSelectionPackage
+  StrCmp $0 "LOCAL_PACKAGE_BINDING" LocalSelectionPackage
+  StrCmp $0 "LOCAL_PAYLOAD_MISSING" LocalSelectionPackage LocalSelectionDefault
+  LocalSelectionPackage:
+  StrCmp $LocalRuntimeHome "" LocalSelectionDefault
+  IfFileExists "$LocalRuntimeHome\leadya-local-install.txt" 0 LocalSelectionDefault
+  StrCpy $LocalValidationMode "Destination"
+  Call ValidateLocalInstallation
+  StrCmp $LocalValidationResult "0" LocalSelectionKept LocalSelectionDefault
+  LocalSelectionRetry:
+  ReadRegStr $2 HKCU "${LOCAL_INSTALL_STATE_KEY}" "${LOCAL_RESOLVE_STOPPED_VALUE}"
+  StrCmp $2 $INSTDIR LocalSelectionDefault
+  WriteRegStr HKCU "${LOCAL_INSTALL_STATE_KEY}" "${LOCAL_RESOLVE_STOPPED_VALUE}" $INSTDIR
+  StrCpy $LocalShowRetry "1"
+  Call ShowLocalInstallationFailure
+  SetErrorLevel 12
+  Quit
   LocalSelectionDefault:
   StrCpy $INSTDIR "${LEADYA_DEFAULT_INSTALL_DIR}"
+  LocalSelectionKept:
+  ; Any answer other than a retryable failure ends an earlier stop.
+  DeleteRegValue HKCU "${LOCAL_INSTALL_STATE_KEY}" "${LOCAL_RESOLVE_STOPPED_VALUE}"
+  ClearErrors
   LocalSelectionDone:
-FunctionEnd
-
-Function PrepareLocalRuntimeHome
-  System::Call 'shell32::IsUserAnAdmin() i .r0'
-  StrCmp $0 "0" +3
-  SetErrorLevel 12
-  Abort
-  StrCpy $LocalCodeHome $INSTDIR
-  StrCpy $INSTDIR $LocalRuntimeHome
-  Call RequireLocalInstallHome
-  Call PrepareFreshLocalInstallHome
-  StrCpy $INSTDIR $LocalCodeHome
 FunctionEnd
 
 Function CommitCompletedLocalInstallation
   ReadRegStr $PreviousInstallDirectory HKCU "${LOCAL_INSTALL_STATE_KEY}" ""
   ReadRegDWORD $PreviousInstallComplete HKCU "${LOCAL_INSTALL_STATE_KEY}" "InstalledSuccessfully"
   ReadRegStr $PreviousInstallJar HKCU "${LOCAL_INSTALL_STATE_KEY}" "CheckingProgramJar"
+  ReadRegStr $PreviousInstallIdentity HKCU "${LOCAL_INSTALL_STATE_KEY}" "${LOCAL_IDENTITY_VALUE}"
   ClearErrors
+  StrCmp $LocalIdentityRoot "" 0 LocalCommitIdentity
+  ; A saved identity whose profile was gone was dropped in .onInit; it is forgotten together with this commit.
+  ; An older value without an address may belong to another address and stays.
+  StrCmp $PreviousInstallIdentity "" LocalCommitLocation
+  DeleteRegValue HKCU "${LOCAL_INSTALL_STATE_KEY}" "${LOCAL_IDENTITY_VALUE}"
+  IfErrors LocalCommitFailed
+  Goto LocalCommitLocation
+  LocalCommitIdentity:
+  WriteRegStr HKCU "${LOCAL_INSTALL_STATE_KEY}" "${LOCAL_IDENTITY_VALUE}" $LocalIdentityRoot
+  IfErrors LocalCommitFailed
+  LocalCommitLocation:
   WriteRegStr HKCU "${LOCAL_INSTALL_STATE_KEY}" "" $INSTDIR
   IfErrors LocalCommitFailed
   WriteRegStr HKCU "${LOCAL_INSTALL_STATE_KEY}" "CheckingProgramJar" $LocalValidationJar
   IfErrors LocalCommitFailed
   WriteRegDWORD HKCU "${LOCAL_INSTALL_STATE_KEY}" "InstalledSuccessfully" 1
   IfErrors LocalCommitFailed
-  ; Older clients may still depend on another installation's global home.
-  ; The new LOCAL launcher binds its own private process home after verification.
-  ReadRegStr $0 ${env_hklm} "LEADYA_HOME"
-  StrCmp $0 "" LocalCommitOwnEnvironment
-  StrCmp $0 $INSTDIR LocalCommitOwnEnvironment LocalCommitEnvironmentReady
-  LocalCommitOwnEnvironment:
+  ; A completed installation ends any earlier stop of its adoption, also on the saved-identity path without Adopt,
+  ; and any earlier stop of the check of its saved folder.
+  DeleteRegValue HKCU "${LOCAL_INSTALL_STATE_KEY}" "${LOCAL_ADOPT_STOPPED_VALUE}"
+  DeleteRegValue HKCU "${LOCAL_INSTALL_STATE_KEY}" "${LOCAL_RESOLVE_STOPPED_VALUE}"
   ClearErrors
-  ; Last fallible write: a failed/aborted install never redirects other launchers.
-  WriteRegStr ${env_hklm} "LEADYA_HOME" $INSTDIR
-  IfErrors LocalCommitFailed
-  SendMessage ${HWND_BROADCAST} ${WM_SETTINGCHANGE} 0 "STR:Environment" /TIMEOUT=5000
-  LocalCommitEnvironmentReady:
-  ; Notification is best-effort; the completed registry transaction has already succeeded.
-  ClearErrors
+  ; Nothing is stored in the environment: the launcher binds its own process to the private home.
   Return
   LocalCommitFailed:
   StrCmp $PreviousInstallDirectory "" 0 +3
@@ -567,6 +713,10 @@ Function CommitCompletedLocalInstallation
   DeleteRegValue HKCU "${LOCAL_INSTALL_STATE_KEY}" "InstalledSuccessfully"
   Goto +2
   WriteRegDWORD HKCU "${LOCAL_INSTALL_STATE_KEY}" "InstalledSuccessfully" $PreviousInstallComplete
+  StrCmp $PreviousInstallIdentity "" 0 +3
+  DeleteRegValue HKCU "${LOCAL_INSTALL_STATE_KEY}" "${LOCAL_IDENTITY_VALUE}"
+  Goto +2
+  WriteRegStr HKCU "${LOCAL_INSTALL_STATE_KEY}" "${LOCAL_IDENTITY_VALUE}" $PreviousInstallIdentity
   SetErrors
 FunctionEnd
 ; END LOCAL INSTALL COMPLETION
@@ -778,107 +928,6 @@ Function RefuseLocalInstallHome
 FunctionEnd
 ; END LOCAL CLASSIFICATION
 
-; BEGIN FRESH LOCAL PRIVACY
-Var LocalPrivatePath
-
-Function RequireLocalPrivatePathOwner
-  System::Call 'kernel32::GetFileAttributesW(w "$LocalPrivatePath") i .r0'
-  IntCmp $0 -1 LocalPrivatePathOwnerReady
-  IntOp $0 $0 & 0x400
-  StrCmp $0 0 0 LocalPrivatePathOwnerRefused
-  AccessControl::GetFileOwner /SID "$LocalPrivatePath"
-  Pop $0
-  StrCmp $0 $LocalOperatorSid LocalPrivatePathOwnerReady
-  StrCmp $0 "S-1-5-18" LocalPrivatePathOwnerReady
-  StrCmp $0 "S-1-5-32-544" LocalPrivatePathOwnerReady
-  LocalPrivatePathOwnerRefused:
-  Call RefuseLocalInstallPrivacy
-  LocalPrivatePathOwnerReady:
-  Return
-FunctionEnd
-
-Function SecureLocalPrivatePath
-  System::Call 'kernel32::GetFileAttributesW(w "$LocalPrivatePath") i .r0'
-  IntCmp $0 -1 LocalPrivatePathSecured
-  Call RequireLocalPrivatePathOwner
-  AccessControl::DisableFileInheritance "$LocalPrivatePath"
-  Pop $0
-  StrCmp $0 "ok" 0 LocalPrivatePathFailed
-  AccessControl::ClearOnFile "$LocalPrivatePath" "$LocalLine" "FullAccess"
-  Pop $0
-  StrCmp $0 "ok" 0 LocalPrivatePathFailed
-  AccessControl::GrantOnFile "$LocalPrivatePath" "(SY)" "FullAccess"
-  Pop $0
-  StrCmp $0 "ok" 0 LocalPrivatePathFailed
-  AccessControl::GrantOnFile "$LocalPrivatePath" "(BA)" "FullAccess"
-  Pop $0
-  StrCmp $0 "ok" 0 LocalPrivatePathFailed
-  LocalPrivatePathSecured:
-  Return
-  LocalPrivatePathFailed:
-  Call RefuseLocalInstallPrivacy
-FunctionEnd
-
-Function PrepareFreshLocalInstallHome
-  ; This legacy producer is callable only by an ordinary user. The elevated installer is read-only here.
-  System::Call 'shell32::IsUserAnAdmin() i .r0'
-  StrCmp $0 "0" +3
-  SetErrorLevel 12
-  Abort
-  ; Classification has accepted fresh or recognized legacy LOCAL. Never repair a bound home.
-  IfFileExists "$INSTDIR\leadya-local-install.txt" LocalPrivacyReady
-  CreateDirectory "$INSTDIR"
-  AccessControl::GetCurrentUserName
-  Pop $0
-  StrCmp $0 "error" LocalPrivacyFailure
-  StrCpy $LocalLine $0
-  AccessControl::NameToSid "$LocalLine"
-  Pop $LocalOperatorSid
-  StrCmp $LocalOperatorSid "error" LocalPrivacyFailure
-  AccessControl::GetFileOwner /SID "$INSTDIR"
-  Pop $0
-  StrCmp $0 $LocalOperatorSid LocalPrivateOwnerAccepted
-  StrCmp $0 "S-1-5-18" LocalPrivateOwnerAccepted
-  StrCmp $0 "S-1-5-32-544" 0 LocalPrivacyFailure
-  LocalPrivateOwnerAccepted:
-  ; Check custody before changing any existing ACL. Credentials and profile bytes stay intact.
-  StrCpy $LocalPrivatePath "$INSTDIR\bot_files"
-  Call RequireLocalPrivatePathOwner
-  StrCpy $LocalPrivatePath "$INSTDIR\bot_files\bot.properties"
-  Call RequireLocalPrivatePathOwner
-  StrCpy $LocalPrivatePath "$INSTDIR\bot.properties.backup"
-  Call RequireLocalPrivatePathOwner
-  AccessControl::DisableFileInheritance "$INSTDIR"
-  Pop $0
-  StrCmp $0 "ok" 0 LocalPrivacyFailure
-  AccessControl::ClearOnFile "$INSTDIR" "$LocalLine" "FullAccess"
-  Pop $0
-  StrCmp $0 "ok" 0 LocalPrivacyFailure
-  AccessControl::GrantOnFile "$INSTDIR" "(SY)" "FullAccess"
-  Pop $0
-  StrCmp $0 "ok" 0 LocalPrivacyFailure
-  AccessControl::GrantOnFile "$INSTDIR" "(BA)" "FullAccess"
-  Pop $0
-  StrCmp $0 "ok" 0 LocalPrivacyFailure
-  StrCpy $LocalPrivatePath "$INSTDIR\bot_files"
-  Call SecureLocalPrivatePath
-  StrCpy $LocalPrivatePath "$INSTDIR\bot_files\bot.properties"
-  Call SecureLocalPrivatePath
-  StrCpy $LocalPrivatePath "$INSTDIR\bot.properties.backup"
-  Call SecureLocalPrivatePath
-  LocalPrivacyReady:
-  Return
-  LocalPrivacyFailure:
-  Call RefuseLocalInstallPrivacy
-FunctionEnd
-
-Function RefuseLocalInstallPrivacy
-  MessageBox MB_OK|MB_ICONEXCLAMATION "$(ERROR_somethingWentWrong) [LOCAL_PRIVACY]" /SD IDOK
-  SetErrorLevel 11
-  Quit
-FunctionEnd
-; END FRESH LOCAL PRIVACY
-
 ;--------------------------------
 ;Installer Sections
 
@@ -901,7 +950,7 @@ SectionIn 1
 
   ${LogLine} "(SecServer) Installing JRE"
   !insertmacro InstallJRE
-  ; The elevated phase never initializes user-owned runtime data.
+  ; The launcher prepares this user's runtime data at the first start.
   DetailPrint $(LOG_installingLeadyaServer)
 
   DetailPrint "$(LOG_checkingProgramVersion)"
@@ -973,16 +1022,21 @@ SectionIn 1
   FileWriteUTF16LE /BOM $1 "$INSTDIR$\r$\n"
   FileClose $1
   IfErrors LocalPayloadFailure
+  Delete "$LocalTrustedHome\leadya-identity-root.txt"
+  StrCmp $LocalIdentityRoot "" LocalIdentityFileDone
+  FileOpen $1 "$LocalTrustedHome\leadya-identity-root.txt" w
+  FileWriteUTF16LE /BOM $1 "$LocalIdentityRoot$\r$\n"
+  FileClose $1
+  IfErrors LocalPayloadFailure
+  LocalIdentityFileDone:
   ; Chromium is provisioned by the ordinary client through ChromiumProvisioner when needed.
 
   ;Create uninstaller
   ${LogLine} "(SecServer) Creating uninstaller"
   WriteUninstaller "$LocalTrustedHome\Uninstall.exe"
 
-  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Leadya" \
-                 "DisplayName" "Leadya"
-  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Leadya" \
-                 "UninstallString" "$\"$LocalTrustedHome\Uninstall.exe$\""
+  WriteRegStr HKCU "${LOCAL_UNINSTALL_KEY}" "DisplayName" "Leadya"
+  WriteRegStr HKCU "${LOCAL_UNINSTALL_KEY}" "UninstallString" "$\"$LocalTrustedHome\Uninstall.exe$\""
   StrCpy $LocalValidationJar "CheckingProgram-$CheckingProgramVersion.jar"
   DetailPrint "$(LOG_verifyingInstallation)"
   StrCpy $LocalValidationMode "Installable"
@@ -1010,7 +1064,7 @@ Function RunInstalledLocalApplication
   ; The finish action uses the hidden PowerShell entry point directly, independently
   ; of Windows Script Host's optional VBS engine and its per-user file association.
   SetOutPath "$LocalTrustedHome"
-  ShellExecAsUser::ShellExecAsUser "open" "$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" '-NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "$LocalTrustedHome\LaunchLocalLeadYa.ps1"' SW_HIDE
+  ExecShell "open" "$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" '-NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "$LocalTrustedHome\LaunchLocalLeadYa.ps1"' SW_HIDE
 FunctionEnd
 
 Function ConfigureChromeFinishPage
@@ -1023,39 +1077,31 @@ Function ConfigureChromeFinishPage
   ChromeNotInstalled:
 FunctionEnd
 
-Function InstallOptionalGoogleChrome
-  nsExec::ExecToStack '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "$LocalTrustedHome\InstallGoogleChrome.ps1"'
-  Pop $0
-  Pop $1
-  StrCmp $0 "0" ChromeInstallDone
-  MessageBox MB_OK|MB_ICONEXCLAMATION "Nie udało się zainstalować Google Chrome. LeadYa jest zainstalowana. Możesz zainstalować Chrome później." /SD IDOK
-  ChromeInstallDone:
+Function OpenGoogleChromeDownloadPage
+  ; The person downloads and installs Chrome from Google themselves; the installer never does it silently.
+  ExecShell "open" "${LEADYA_CHROME_DOWNLOAD_PAGE}"
 FunctionEnd
-
-;--------------------------------
-Section "-Leadya Proxy" SecProxy
-SectionIn 2
-
-  ${LogLine} "(SecProxy) Setting output path"
-  SetOutPath "$INSTDIR"
-
-  ${LogLine} "(SecProxy) Installing JRE"
-  !insertmacro InstallJRE
-
-  ${LogLine} "(SecProxy) Storing installation folder in registry"
-  WriteRegStr HKCU "Software\Leadya\Proxy" "" $INSTDIR
-
-  ${LogLine} "(SecProxy) Creating uninstaller"
-  WriteUninstaller "$INSTDIR\UninstallProxy.exe"
-
-  ${LogLine} "(SecProxy) Finished"
-SectionEnd
 
 ;--------------------------------
 Section "-Commit completed installation" SecLocalCommit
 SectionIn 1
   StrCmp $LocalInstallationVerified "1" 0 LocalInstallationSuccessDone
   DetailPrint "$(LOG_finishingInstallation)"
+  StrCmp $LocalIdentityRoot "" LocalAdoptionGuardDone
+  ; The old uninstaller stays listed. Its ticked-by-default option must not remove the profile now in use,
+  ; so the profile is guarded before anything of this installation is published. A profile adopted in this run
+  ; must still be there; a saved one that vanished meanwhile gets no guard, and the next installation drops it.
+  StrCmp $LocalIdentityAdopted "1" LocalAdoptionGuard
+  IfFileExists "$LocalRuntimeHome\leadya-local-install.txt" 0 LocalAdoptionGuardDone
+  LocalAdoptionGuard:
+  StrCpy $LocalValidationMode "AdoptGuard"
+  ; An adopted profile is guarded exactly where Adopt verified it, which can differ from the chosen runtime.
+  StrCpy $LocalValidationInput $LocalAdoptedProfile
+  Call ValidateLocalInstallation
+  StrCpy $LocalValidationInput ""
+  ${LogLine} "(SecLocalCommit) AdoptGuard: $LocalValidationResult $LocalValidationOutput"
+  StrCmp $LocalValidationResult "0" 0 LocalInstallationCommitFailed
+  LocalAdoptionGuardDone:
   ; Publish the launch version only after the complete payload passed the real startup policy.
   StrCpy $LocalValidationMode "Publish"
   Call ValidateLocalInstallation
@@ -1079,7 +1125,7 @@ SectionIn 1
   ClearErrors
   Call CommitCompletedLocalInstallation
   IfErrors LocalInstallationCommitFailed
-  ${LogLine} "(SecLocalCommit) Installation state committed; environment policy completed"
+  ${LogLine} "(SecLocalCommit) Installation state committed"
   LocalInstallationSuccessDone:
   Goto LocalInstallationCommitDone
   LocalInstallationCommitFailed:
@@ -1098,6 +1144,8 @@ Function CleanupLocalDownloadFiles
   Delete "$CheckingProgramDownloadFile"
   StrCmp $JreArchivePath "" +2
   Delete "$JreArchivePath"
+  StrCmp $JreStagePath "" +2
+  RMDir /r "$JreStagePath"
 FunctionEnd
 
 Function .onInstFailed
@@ -1118,11 +1166,9 @@ Function .onInit
 
   InitPluginsDir
   File /oname=$PLUGINSDIR\ValidateLocalInstall.ps1 "ValidateLocalInstall.ps1"
+  Call ResolveLocalIdentity
   Call SelectCompletedLocalInstallation
   Call ResolveLocalRuntimeHome
-
-  ;SectionSetFlags ${SecServer} ${SF_RO}
-  SectionSetFlags ${SecProxy} ${SF_RO}
 
   SectionSetSize ${SecServer} ${LEADYA_LOCAL_INSTALL_SIZE_KB}
 FunctionEnd
@@ -1151,6 +1197,14 @@ Function un.onInit
   StrCmp $0 "0" 0 UninstallBindingRefused
   ${StrRep} $INSTDIR $INSTDIR "$\r" ""
   ${StrRep} $INSTDIR $INSTDIR "$\n" ""
+  IfFileExists "$LocalTrustedHome\leadya-identity-root.txt" 0 UninstallIdentityReady
+  FileOpen $1 "$LocalTrustedHome\leadya-identity-root.txt" r
+  FileReadUTF16LE $1 $LocalIdentityRoot
+  FileClose $1
+  ${StrRep} $LocalIdentityRoot $LocalIdentityRoot "$\r" ""
+  ${StrRep} $LocalIdentityRoot $LocalIdentityRoot "$\n" ""
+  UninstallIdentityReady:
+  ClearErrors
   FileOpen $1 "$LocalTrustedHome\checking_program_version.txt" r
   IfErrors UninstallBindingReady
   FileRead $1 $LocalValidationJar
@@ -1175,70 +1229,6 @@ Function un.CleanupLocalUser
   FileOpen $0 "$PLUGINSDIR\user-cleanup\leadya-user-cleanup-result.txt" w
   IfErrors LocalUninstallUserFailed
   FileClose $0
-  ; Bind result write access to the desktop shell user used by ShellExecAsUser.
-  ; Other local Users accounts must not be able to forge cleanup success.
-  System::Call 'user32::GetShellWindow() p .r0'
-  StrCmp $0 0 LocalUninstallUserFailed
-  System::Call 'user32::GetWindowThreadProcessId(p r0, *i .r1) i .r2'
-  StrCmp $2 0 LocalUninstallUserFailed
-  System::Call 'kernel32::OpenProcess(i 0x1000, i 0, i r1) p .r2'
-  StrCmp $2 0 LocalUninstallUserFailed
-  System::Call 'advapi32::OpenProcessToken(p r2, i 8, *p .r3) i .r4'
-  System::Call 'kernel32::CloseHandle(p r2)'
-  StrCmp $4 0 LocalUninstallUserFailed
-  System::Call 'advapi32::GetTokenInformation(p r3, i 1, p 0, i 0, *i .r1)'
-  IntCmp $1 65536 0 0 LocalUninstallTokenFailed
-  IntCmp $1 0 LocalUninstallTokenFailed LocalUninstallTokenFailed 0
-  System::Alloc $1
-  Pop $0
-  StrCmp $0 0 LocalUninstallTokenFailed
-  System::Call 'advapi32::GetTokenInformation(p r3, i 1, p r0, i r1, *i .r2) i .r4'
-  System::Call 'kernel32::CloseHandle(p r3)'
-  StrCmp $4 0 LocalUninstallSidFailed
-  System::Call '*$0(p .r1)'
-  System::Call 'advapi32::ConvertSidToStringSidW(p r1, *p .r2) i .r4'
-  System::Free $0
-  StrCmp $4 0 LocalUninstallUserFailed
-  System::Call '*$2(&w${NSIS_MAX_STRLEN} .r4)'
-  System::Call 'kernel32::LocalFree(p r2)'
-  StrCmp $4 "" LocalUninstallUserFailed
-  Goto LocalUninstallSidReady
-  LocalUninstallTokenFailed:
-  System::Call 'kernel32::CloseHandle(p r3)'
-  Goto LocalUninstallUserFailed
-  LocalUninstallSidFailed:
-  System::Free $0
-  Goto LocalUninstallUserFailed
-  LocalUninstallSidReady:
-  ; Elevated NSIS uses a private temp directory. Grant ordinary users read access
-  ; to this public helper and only the shell user write access to the fixed result.
-  ; Never grant write/delete access to the directory or executable helper.
-  System::Call 'advapi32::ConvertStringSecurityDescriptorToSecurityDescriptorW(w "D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;$4)", i 1, *p .r0, p 0) i .r1'
-  StrCmp $1 0 LocalUninstallUserFailed
-  System::Call 'advapi32::SetFileSecurityW(w "$PLUGINSDIR\user-cleanup\leadya-user-cleanup-result.txt", i 4, p r0) i .r1'
-  System::Call 'kernel32::LocalFree(p r0)'
-  StrCmp $1 0 LocalUninstallUserFailed
-  System::Call 'advapi32::ConvertStringSecurityDescriptorToSecurityDescriptorW(w "D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGX;;;BU)", i 1, *p .r0, p 0) i .r1'
-  StrCmp $1 0 LocalUninstallUserFailed
-  System::Call 'advapi32::SetFileSecurityW(w "$PLUGINSDIR\user-cleanup\UninstallLocalLeadYa.ps1", i 4, p r0) i .r1'
-  System::Call 'advapi32::SetFileSecurityW(w "$PLUGINSDIR\user-cleanup", i 4, p r0) i .r2'
-  System::Call 'kernel32::LocalFree(p r0)'
-  StrCmp $1 0 LocalUninstallUserFailed
-  StrCmp $2 0 LocalUninstallUserFailed
-  ; Keep NSIS plugin staging writable to its ordinary owner. The helper's
-  ; subdirectory stays read-only; an elevated stage grants no user write.
-  System::Call 'shell32::IsUserAnAdmin() i .r0'
-  StrCmp $0 0 LocalUninstallOrdinaryStage LocalUninstallAdminStage
-  LocalUninstallOrdinaryStage:
-  System::Call 'advapi32::ConvertStringSecurityDescriptorToSecurityDescriptorW(w "D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGX;;;BU)(A;;GA;;;$4)", i 1, *p .r0, p 0) i .r1'
-  Goto LocalUninstallStageAcl
-  LocalUninstallAdminStage:
-  System::Call 'advapi32::ConvertStringSecurityDescriptorToSecurityDescriptorW(w "D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGX;;;BU)", i 1, *p .r0, p 0) i .r1'
-  LocalUninstallStageAcl:
-  StrCmp $1 0 LocalUninstallUserFailed
-  System::Call 'advapi32::SetFileSecurityW(w "$PLUGINSDIR", i 4, p r0) i .r1'
-  System::Call 'kernel32::LocalFree(p r0)'
-  StrCmp $1 0 LocalUninstallUserFailed
   System::Call 'kernel32::GetCurrentProcessId() i .r0'
   StrCpy $uninstallOwnerPid $0
   System::Call 'kernel32::GetCurrentProcess() p .r0'
@@ -1252,31 +1242,16 @@ Function un.CleanupLocalUser
   Pop $uninstallDeadlineTick
   ; Use an existing public working directory while the selected program is removed.
   SetOutPath "$TEMP"
-  StrCpy $uninstallUserCommand '-NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "$PLUGINSDIR\user-cleanup\UninstallLocalLeadYa.ps1" -InstallDirectory "$INSTDIR" -PublicOrigin "${public_origin}" -RemoveProfile $uninstallRemoveProfileState -RemoveInstallers $uninstallRemoveInstallersState -ResultFile "$PLUGINSDIR\user-cleanup\leadya-user-cleanup-result.txt" -OwnerProcessId $uninstallOwnerPid -OwnerCreationTime $uninstallOwnerTime -OwnerExecutable "$uninstallOwnerExecutable" -DeadlineTick $uninstallDeadlineTick'
-  System::Call 'shell32::IsUserAnAdmin() i .r0'
-  StrCmp $0 0 LocalUninstallOrdinary
-  ShellExecAsUser::ShellExecAsUser "open" "$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" $uninstallUserCommand SW_HIDE
-  Goto LocalUninstallDispatched
-  LocalUninstallOrdinary:
-  ; No de-elevation is necessary. nsExec keeps the already-ordinary child console hidden.
+  StrCpy $uninstallUserCommand '-NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "$PLUGINSDIR\user-cleanup\UninstallLocalLeadYa.ps1" -InstallDirectory "$INSTDIR" -IdentityRoot "$LocalIdentityRoot" -PublicOrigin "${public_origin}" -RemoveProfile $uninstallRemoveProfileState -RemoveInstallers $uninstallRemoveInstallersState -ResultFile "$PLUGINSDIR\user-cleanup\leadya-user-cleanup-result.txt" -OwnerProcessId $uninstallOwnerPid -OwnerCreationTime $uninstallOwnerTime -OwnerExecutable "$uninstallOwnerExecutable" -DeadlineTick $uninstallDeadlineTick'
+  ; The uninstaller already runs as the ordinary user. nsExec keeps the child console hidden.
   nsExec::ExecToStack /TIMEOUT=90000 `"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" $uninstallUserCommand`
   Pop $0
   Pop $1
-  LocalUninstallDispatched:
-  StrCpy $0 0
-  LocalUninstallWait:
   ClearErrors
   FileOpen $1 "$PLUGINSDIR\user-cleanup\leadya-user-cleanup-result.txt" r
-  IfErrors LocalUninstallWaitAgain
+  IfErrors LocalUninstallUserFailed
   FileRead $1 $2
   FileClose $1
-  StrCpy $3 $2 4 -4
-  StrCmp $3 ":END" LocalUninstallUserResult
-  LocalUninstallWaitAgain:
-  Sleep 500
-  IntOp $0 $0 + 1
-  IntCmp $0 240 LocalUninstallUserFailed LocalUninstallWait LocalUninstallUserFailed
-  LocalUninstallUserResult:
   StrCmp $2 "LOCAL_UNINSTALL_OK:END" LocalUninstallUserDone
   DetailPrint "$2"
   LocalUninstallUserFailed:
@@ -1310,13 +1285,10 @@ Section "Uninstall" SecUninstallServer
   Delete /REBOOTOK "$INSTDIR\leadya-local-origin.txt"
   Delete /REBOOTOK "$INSTDIR\leadya-runtime-home.txt"
   Delete /REBOOTOK "$INSTDIR\leadya-code-home.txt"
+  Delete /REBOOTOK "$INSTDIR\leadya-identity-root.txt"
   Delete /REBOOTOK "$INSTDIR\ThirdPartyNotices.txt"
   RMDir "$INSTDIR"
   LocalUninstallCodeDone:
-
-  ReadRegStr $0 ${env_hklm} "LEADYA_HOME"
-  StrCmp $0 $INSTDIR 0 +2
-  DeleteRegValue ${env_hklm} "LEADYA_HOME"
 
   IntCmp $uninstallRemoveJreState ${BST_CHECKED} 0 SkipSharedJreRemoval 0
   StrCpy $LocalValidationMode "Jre"
@@ -1331,15 +1303,34 @@ Section "Uninstall" SecUninstallServer
   StrCpy $LocalValidationMode "Unlink"
   StrCpy $LocalValidationSeed $LocalTrustedHome
   !insertmacro InvokePinnedLocalValidator UninstallLinks
+  ; A stop of this address's adoption or of the check of its saved folder means nothing once its installation is gone.
+  DeleteRegValue HKCU "${LOCAL_INSTALL_STATE_KEY}" "${LOCAL_ADOPT_STOPPED_VALUE}"
+  DeleteRegValue HKCU "${LOCAL_INSTALL_STATE_KEY}" "${LOCAL_RESOLVE_STOPPED_VALUE}"
   ReadRegStr $0 HKCU "${LOCAL_INSTALL_STATE_KEY}" ""
   StrCmp $0 $INSTDIR 0 LocalUninstallShortcutsDone
-  DeleteRegKey HKCU "${LOCAL_INSTALL_STATE_KEY}"
+  ; A kept profile must stay reachable when LeadYa is installed again.
+  ReadRegStr $1 HKCU "${LOCAL_INSTALL_STATE_KEY}" "${LOCAL_IDENTITY_VALUE}"
+  StrCmp $1 "" 0 +2
+  ReadRegStr $1 HKCU "${LOCAL_INSTALL_STATE_KEY}" "${LOCAL_LEGACY_IDENTITY_VALUE}"
+  StrCmp $1 "" LocalUninstallForgetState
+  IntCmp $uninstallRemoveProfileState ${BST_CHECKED} LocalUninstallForgetState
+  DeleteRegValue HKCU "${LOCAL_INSTALL_STATE_KEY}" ""
+  DeleteRegValue HKCU "${LOCAL_INSTALL_STATE_KEY}" "CheckingProgramJar"
+  DeleteRegValue HKCU "${LOCAL_INSTALL_STATE_KEY}" "InstalledSuccessfully"
+  Goto LocalUninstallShortcutsDone
+  LocalUninstallForgetState:
+  ; Only this address's values go; installers of other addresses keep theirs in the same key.
+  DeleteRegValue HKCU "${LOCAL_INSTALL_STATE_KEY}" ""
+  DeleteRegValue HKCU "${LOCAL_INSTALL_STATE_KEY}" "CheckingProgramJar"
+  DeleteRegValue HKCU "${LOCAL_INSTALL_STATE_KEY}" "InstalledSuccessfully"
+  DeleteRegValue HKCU "${LOCAL_INSTALL_STATE_KEY}" "${LOCAL_IDENTITY_VALUE}"
+  DeleteRegKey /ifnosubkeys /ifnovalues HKCU "${LOCAL_INSTALL_STATE_KEY}"
   LocalUninstallShortcutsDone:
   StrCmp $LocalTrustedHome "" LocalUninstallPackageDone
-  ReadRegStr $0 HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Leadya" "UninstallString"
+  ReadRegStr $0 HKCU "${LOCAL_UNINSTALL_KEY}" "UninstallString"
   StrCmp $0 '$\"$LocalTrustedHome\Uninstall.exe$\"' 0 +2
-  DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Leadya"
-  ; This exact admin-owned package passed the binding/ancestor checks in un.onInit.
+  DeleteRegKey HKCU "${LOCAL_UNINSTALL_KEY}"
+  ; This exact package passed the binding/ancestor checks in un.onInit.
   ; Include retained versions, installer logs and partial downloads, not just the current JAR.
   RMDir /r /REBOOTOK "$LocalTrustedHome"
   LocalUninstallPackageDone:
@@ -1366,7 +1357,7 @@ Function un.SetJreRemovalPage
   Pop $uninstallRemoveInstallersCheckbox
   ${NSD_SetState} $uninstallRemoveInstallersCheckbox $uninstallRemoveInstallersState
 
-  ${NSD_CreateCheckbox} 0 74u 100% 12u "Usun tez wspoldzielone JDK z $PROGRAMFILES64\Java\jdk-17.0.9+9-jre"
+  ${NSD_CreateCheckbox} 0 74u 100% 12u "$(UninstallRemoveJava)"
   Pop $uninstallRemoveJreCheckbox
   ${NSD_SetState} $uninstallRemoveJreCheckbox $uninstallRemoveJreState
 

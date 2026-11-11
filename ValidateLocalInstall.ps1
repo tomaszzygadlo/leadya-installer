@@ -1,13 +1,15 @@
 param(
     [Parameter(Mandatory = $true)][string]$InstallDirectory,
-    [ValidateSet('Runtime', 'Destination', 'Prepare', 'Installed', 'Installable', 'Publish', 'Package', 'PackagePrepare', 'PackageTemp', 'PackageSeed', 'Seed', 'Uninstall', 'CodeCleanup', 'Mirror', 'Links', 'Unlink', 'Jre', 'JrePrepare', 'JreCreate', 'JreProbe')][string]$Mode = 'Destination',
+    [ValidateSet('Runtime', 'Destination', 'Prepare', 'Installed', 'Installable', 'Publish', 'Package', 'PackagePrepare', 'PackageTemp', 'PackageSeed', 'Seed', 'Uninstall', 'CodeCleanup', 'Mirror', 'Links', 'Unlink', 'Jre', 'JrePrepare', 'JreCreate', 'JreProbe', 'JreVerify', 'Adopt', 'AdoptGuard', 'Identity')][string]$Mode = 'Destination',
     [string]$PublicOrigin,
     [string]$ProgramJar,
     [string]$JavaExecutable,
     [string]$RuntimeDirectory,
     [string]$SeedDirectory,
     [string]$StagedJar,
-    [bool]$EncodedOutput = $false
+    [bool]$EncodedOutput = $false,
+    [string]$InputPath,
+    [string]$IdentityRoot
 )
 
 # Validate LOCAL custody; Prepare initializes only a new per-user runtime. Never repair ancestors.
@@ -26,26 +28,42 @@ function Write-LocalValidationResult([string]$Value) {
 }
 try {
     $elevated = ([Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent())).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-    if ($elevated -and $Mode -in @('Prepare', 'Seed')) { throw 'LOCAL_ELEVATED_RUNTIME' }
+    # Everything here belongs to one ordinary user; an elevated token could be another account.
+    if ($elevated) { throw 'LOCAL_ELEVATED_RUNTIME' }
     $root = [IO.Path]::GetFullPath($InstallDirectory).TrimEnd('\')
     if ($root -notmatch '^[A-Za-z]:\\' -or $root.Length -le 3) { throw 'LOCAL_PATH' }
     $originUri = [Uri]$PublicOrigin
     if (-not $originUri.IsAbsoluteUri -or ($originUri.Scheme -ne 'https' -and -not ($originUri.Scheme -eq 'http' -and $originUri.IsLoopback)) -or
         $originUri.UserInfo -or $originUri.Query -or $originUri.Fragment -or $originUri.AbsolutePath -ne '/' -or $PublicOrigin.Contains("`n") -or $PublicOrigin.Contains("`r")) { throw 'LOCAL_ORIGIN' }
-    $digest = [Security.Cryptography.SHA256]::Create()
-    try { $id = ([BitConverter]::ToString($digest.ComputeHash([Text.Encoding]::UTF8.GetBytes($root.ToUpperInvariant() + "`n" + $PublicOrigin)))).Replace('-', '').ToLowerInvariant() }
-    finally { $digest.Dispose() }
-    $candidates = @(
-        (Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) ('LeadYa\installations\' + $id)),
-        (Join-Path ([Environment]::GetFolderPath('UserProfile')) ('.leadya-client\installations\' + $id))
-    )
+    function ConvertTo-IdentityRoot([string]$Path) {
+        $full = [IO.Path]::GetFullPath($Path).TrimEnd('\')
+        if ($full -notmatch '^[A-Za-z]:\\' -or $full.Length -le 3) { throw 'LOCAL_PATH' }
+        return $full
+    }
+    function Get-InstallationId([string]$Identity) {
+        $digest = [Security.Cryptography.SHA256]::Create()
+        try { return ([BitConverter]::ToString($digest.ComputeHash([Text.Encoding]::UTF8.GetBytes($Identity.ToUpperInvariant() + "`n" + $PublicOrigin)))).Replace('-', '').ToLowerInvariant() }
+        finally { $digest.Dispose() }
+    }
+    function Get-RuntimeCandidates([string]$InstallationId) {
+        return @(
+            (Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) ('LeadYa\installations\' + $InstallationId)),
+            (Join-Path ([Environment]::GetFolderPath('UserProfile')) ('.leadya-client\installations\' + $InstallationId))
+        )
+    }
+    # A computer adopted from the old machine-wide installer keeps the identity of its original program folder.
+    $id = Get-InstallationId $(if ($IdentityRoot) { ConvertTo-IdentityRoot $IdentityRoot } else { $root })
+    $candidates = Get-RuntimeCandidates $id
     $operator = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
     $privateOwners = @($operator, 'S-1-5-18', 'S-1-5-32-544')
     $ancestorOwners = $privateOwners + 'S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464'
-    $trustedOwners = @('S-1-5-18', 'S-1-5-32-544', 'S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464')
+    $trustedOwners = $ancestorOwners
+    # Only the detection of an old machine-wide installation still looks at Program Files.
     $programFiles = if ($env:ProgramW6432) { $env:ProgramW6432 } else { [Environment]::GetFolderPath('ProgramFiles') }
-    $packageParent = Join-Path $programFiles 'LeadYaInstallerPackages'
+    $perUserRoot = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'LeadYa'
+    $packageParent = Join-Path $perUserRoot 'packages'
     $package = Join-Path $packageParent $id
+    $jreArchiveSha256 = 'fe4656bd78fb09812dc38c49da777f79cc33e7ee435a254be82f9e7f40d9d117'
     $readonly = [long]([Security.AccessControl.FileSystemRights]::ReadAndExecute) -bor
         [long]([Security.AccessControl.FileSystemRights]::Synchronize) -bor
         [long]([Security.AccessControl.FileSystemRights]::AppendData)
@@ -102,8 +120,24 @@ try {
         $populated = @($Candidates | Where-Object { [IO.File]::Exists((Join-Path $_ 'bot_files\bot.properties')) })
         # A bound home stays selected when another candidate later qualifies, so reinstalls keep their home.
         $bound = @($Candidates | Where-Object { $_ -notin $populated -and [IO.File]::Exists((Join-Path $_ 'leadya-local-install.txt')) })
+        # A profile whose marker names it goes first. Data without a valid marker can never be prepared
+        # (LOCAL_UNBOUND_RUNTIME, LOCAL_MARKER_MISMATCH), so choosing it would block every start, e.g. after an
+        # upgrade whose profile lives in the second location while the first holds data with a marker of another place.
+        $valid = @($Candidates | Where-Object {
+            if (-not [IO.File]::Exists((Join-Path $_ 'leadya-local-install.txt'))) { return $false }
+            try { Assert-LocalMarker $_; return $true }
+            catch {
+                # Only a fixed refusal makes a marker invalid. A passing read or ACL error (a scanner holding the file)
+                # leaves it unknown: the folder keeps its place as if valid, so the profile in use never moves, a held
+                # marker of the unused location never stops it, and the real error surfaces only when this folder is used.
+                return -not ([string]$_.Exception.Message -cmatch '^LOCAL_[A-Z_]{1,40}$')
+            }
+        })
+        $ordered = @($valid | Where-Object { $_ -in $populated }) + @($valid | Where-Object { $_ -notin $populated }) +
+            @($populated | Where-Object { $_ -notin $valid }) + @($bound | Where-Object { $_ -notin $valid }) +
+            @($Candidates | Where-Object { $_ -notin $populated -and $_ -notin $bound })
         $refusal = $null
-        foreach ($candidate in @($populated) + @($bound) + @($Candidates | Where-Object { $_ -notin $populated -and $_ -notin $bound })) {
+        foreach ($candidate in $ordered) {
             try {
                 Assert-RuntimeAncestors $candidate
                 if ([IO.Directory]::Exists($candidate)) { Assert-Custody $candidate $true }
@@ -139,30 +173,30 @@ try {
         }
     }
     function New-PackageFileStream([string]$Path) {
-        # Set owner and DACL at creation: a filtered token of the installing user never owns the stage.
+        # Set owner and DACL at creation, so the file never exists with broader inherited access.
         $security = New-Object Security.AccessControl.FileSecurity
-        $security.SetOwner([Security.Principal.SecurityIdentifier]::new('S-1-5-32-544'))
+        $security.SetOwner([Security.Principal.SecurityIdentifier]::new($operator))
         $security.SetAccessRuleProtection($true, $false)
-        foreach ($sid in @('S-1-5-18', 'S-1-5-32-544', 'S-1-5-32-545')) {
-            $rights = if ($sid -eq 'S-1-5-32-545') { 'ReadAndExecute' } else { 'FullControl' }
-            $security.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new([Security.Principal.SecurityIdentifier]::new($sid), $rights, 'Allow'))
+        foreach ($sid in $privateOwners) {
+            $security.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new([Security.Principal.SecurityIdentifier]::new($sid), 'FullControl', 'Allow'))
         }
         return [IO.FileStream]::new($Path, [IO.FileMode]::CreateNew, [Security.AccessControl.FileSystemRights]::Write,
             [IO.FileShare]::None, 4096, [IO.FileOptions]::None, $security)
     }
-    if ($Mode -eq 'PackageTemp') {
-        Assert-PackageAncestors
-        Assert-PackagePath $package
-        $temporary = Join-Path $package ('.leadya-download-' + [Guid]::NewGuid().ToString('N') + '.tmp')
-        $stream = New-PackageFileStream $temporary
-        $stream.Dispose()
-        Assert-PackagePath $temporary
-        Write-LocalValidationResult $temporary
-        exit 0
+    function New-ProtectedDirectory([string]$Path) {
+        if (Test-Path -LiteralPath $Path) { Assert-PackagePath $Path; return }
+        $acl = New-Object Security.AccessControl.DirectorySecurity
+        $acl.SetOwner([Security.Principal.SecurityIdentifier]::new($operator))
+        $acl.SetAccessRuleProtection($true, $false)
+        foreach ($sid in $privateOwners) {
+            $acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new([Security.Principal.SecurityIdentifier]::new($sid), 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow'))
+        }
+        [IO.Directory]::CreateDirectory($Path, $acl) | Out-Null
+        Assert-PackagePath $Path
     }
-    if ($Mode -eq 'Uninstall') {
-        if ([IO.Path]::GetDirectoryName($root) -ine $packageParent -or [IO.Path]::GetFileName($root) -notmatch '^[0-9a-f]{64}$') { throw 'LOCAL_PACKAGE_BINDING' }
-        $package = $root
+    function Read-PackageBinding {
+        # The caller points $package and $packageParent at the installation being bound.
+        if ([IO.Path]::GetDirectoryName($package) -ine $packageParent -or [IO.Path]::GetFileName($package) -notmatch '^[0-9a-f]{64}$') { throw 'LOCAL_PACKAGE_BINDING' }
         Assert-PackageAncestors
         Assert-PackagePath $package
         foreach ($relative in @('leadya-code-home.txt', 'leadya-local-origin.txt', 'checking_program_version.txt')) {
@@ -177,11 +211,29 @@ try {
         $recordedVersion = [IO.File]::ReadAllText((Join-Path $package 'checking_program_version.txt')).TrimEnd("`r", "`n")
         if ($codeRoot -notmatch '^[A-Za-z]:\\' -or $codeRoot.Length -le 3 -or $recordedOrigin -cne $PublicOrigin -or
             $recordedVersion -notmatch '^[A-Za-z0-9.]+$') { throw 'LOCAL_PACKAGE_BINDING' }
-        $hasher = [Security.Cryptography.SHA256]::Create()
-        try { $expected = ([BitConverter]::ToString($hasher.ComputeHash([Text.Encoding]::UTF8.GetBytes($codeRoot.ToUpperInvariant() + "`n" + $PublicOrigin)))).Replace('-', '').ToLowerInvariant() }
-        finally { $hasher.Dispose() }
-        if ($expected -cne [IO.Path]::GetFileName($package)) { throw 'LOCAL_PACKAGE_BINDING' }
-        Write-LocalValidationResult $codeRoot
+        $identity = $codeRoot
+        $identityFile = Join-Path $package 'leadya-identity-root.txt'
+        if ([IO.File]::Exists($identityFile)) {
+            Assert-PackagePath $identityFile
+            if ((Get-Item -LiteralPath $identityFile -Force).Length -gt 65536) { throw 'LOCAL_PACKAGE_BINDING' }
+            $identity = ConvertTo-IdentityRoot ([IO.File]::ReadAllText($identityFile).TrimEnd("`r", "`n"))
+        }
+        if ((Get-InstallationId $identity) -cne [IO.Path]::GetFileName($package)) { throw 'LOCAL_PACKAGE_BINDING' }
+        return $codeRoot
+    }
+    if ($Mode -eq 'PackageTemp') {
+        Assert-PackageAncestors
+        Assert-PackagePath $package
+        $temporary = Join-Path $package ('.leadya-download-' + [Guid]::NewGuid().ToString('N') + '.tmp')
+        $stream = New-PackageFileStream $temporary
+        $stream.Dispose()
+        Assert-PackagePath $temporary
+        Write-LocalValidationResult $temporary
+        exit 0
+    }
+    if ($Mode -eq 'Uninstall') {
+        $package = $root
+        Write-LocalValidationResult (Read-PackageBinding)
         exit 0
     }
     if ($Mode -eq 'CodeCleanup') {
@@ -195,19 +247,7 @@ try {
     if ($Mode -in @('Package', 'PackagePrepare')) {
         Assert-PackageAncestors
         if ($Mode -eq 'PackagePrepare') {
-            foreach ($directory in @($packageParent, $package)) {
-                if (Test-Path -LiteralPath $directory) { Assert-PackagePath $directory; continue }
-                $acl = New-Object Security.AccessControl.DirectorySecurity
-                $acl.SetOwner([Security.Principal.SecurityIdentifier]::new('S-1-5-32-544'))
-                $acl.SetAccessRuleProtection($true, $false)
-                foreach ($sid in @('S-1-5-18', 'S-1-5-32-544', 'S-1-5-32-545')) {
-                    $rights = if ($sid -eq 'S-1-5-32-545') { 'ReadAndExecute' } else { 'FullControl' }
-                    $acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
-                        [Security.Principal.SecurityIdentifier]::new($sid), $rights, 'ContainerInherit,ObjectInherit', 'None', 'Allow'))
-                }
-                [IO.Directory]::CreateDirectory($directory, $acl) | Out-Null
-                Assert-PackagePath $directory
-            }
+            foreach ($directory in @($packageParent, $package)) { New-ProtectedDirectory $directory }
             foreach ($relative in @('LaunchLocalLeadYa.ps1', 'ValidateLocalInstall.ps1', 'LocalProfileRecovery.ps1', 'UninstallLocalLeadYa.ps1', 'LaunchLocalLeadYa.vbs', 'leadya-nova-icon.ico', 'LeadyaCheckingProgram.bat', 'Uninstall.exe', 'leadya-code-home.txt', 'leadya-local-origin.txt')) {
                 $file = Join-Path $package $relative
                 if (Test-Path -LiteralPath $file) { Assert-PackagePath $file }
@@ -221,20 +261,10 @@ try {
     if ($Mode -in @('Mirror', 'Links', 'Unlink') -and -not $SeedDirectory) { throw 'LOCAL_PACKAGE_REQUIRED' }
     if ($SeedDirectory) {
         if ([IO.Path]::GetFullPath($SeedDirectory).TrimEnd('\') -ine $package) { throw 'LOCAL_PACKAGE_BINDING' }
+        # A package that is not there is a lasting defect with its own code, never a passing read error a retry clears.
+        if (-not [IO.Directory]::Exists($package)) { throw 'LOCAL_PACKAGE_MISSING' }
         Assert-PackageAncestors
         Assert-PackagePath $package
-    }
-    function New-ProtectedDirectory([string]$Path) {
-        if (Test-Path -LiteralPath $Path) { Assert-PackagePath $Path; return }
-        $acl = New-Object Security.AccessControl.DirectorySecurity
-        $acl.SetOwner([Security.Principal.SecurityIdentifier]::new('S-1-5-32-544'))
-        $acl.SetAccessRuleProtection($true, $false)
-        foreach ($sid in @('S-1-5-18', 'S-1-5-32-544', 'S-1-5-32-545')) {
-            $rights = if ($sid -eq 'S-1-5-32-545') { 'ReadAndExecute' } else { 'FullControl' }
-            $acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new([Security.Principal.SecurityIdentifier]::new($sid), $rights, 'ContainerInherit,ObjectInherit', 'None', 'Allow'))
-        }
-        [IO.Directory]::CreateDirectory($Path, $acl) | Out-Null
-        Assert-PackagePath $Path
     }
     function Assert-ProtectedAncestors([string]$Path) {
         for ($parent = $Path; $null -ne $parent; $parent = [IO.Path]::GetDirectoryName($parent)) {
@@ -247,9 +277,7 @@ try {
         try {
             $sourceHandle = [IO.File]::Open($Source, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
             try {
-                $output = if ($elevated) { New-PackageFileStream $temporary } else {
-                    [IO.File]::Open($temporary, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
-                }
+                $output = [IO.File]::Open($temporary, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
                 try { $sourceHandle.CopyTo($output); $output.Flush($true) } finally { $output.Dispose() }
             } finally { $sourceHandle.Dispose() }
             if ([IO.File]::Exists($Destination)) { [IO.File]::Replace($temporary, $Destination, [NullString]::Value) }
@@ -257,11 +285,10 @@ try {
         } finally { if ([IO.File]::Exists($temporary)) { [IO.File]::Delete($temporary) } }
     }
     function Assert-SharedJre([string]$Preparation = '') {
-        $sharedJavaParent = Join-Path $programFiles 'Java'
-        $sharedJre = Join-Path $sharedJavaParent 'jdk-17.0.9+9-jre'
+        $sharedJavaParent = Join-Path $perUserRoot 'Java'
+        $sharedJre = Join-Path $sharedJavaParent 'jdk-17.0.21+9-jre'
         Assert-ProtectedAncestors $sharedJre
         if ($Preparation -in @('JrePrepare', 'JreCreate')) { New-ProtectedDirectory $sharedJavaParent }
-        if ($Preparation -eq 'JreCreate') { New-ProtectedDirectory $sharedJre }
         Assert-ProtectedAncestors $sharedJre
         if ([IO.Directory]::Exists($sharedJre)) {
             # Inspect each directory before descending; never follow a reparse subtree.
@@ -305,17 +332,6 @@ try {
         return $info
     }
     function Invoke-JavaProbe([string]$Arguments, [int]$Timeout) {
-        if ($elevated) {
-            $expectedJava = Join-Path $programFiles 'Java\jdk-17.0.9+9-jre\bin\java.exe'
-            if ([IO.Path]::GetFullPath($JavaExecutable) -ine $expectedJava) { throw 'LOCAL_JAVA_BINDING' }
-            Assert-SharedJre
-            Assert-PackagePath $JavaExecutable
-            Assert-PackageAncestors
-            Assert-PackagePath $package
-            $windows = [Environment]::GetFolderPath('Windows')
-            Assert-ProtectedAncestors $windows
-            Assert-ProtectedAncestors (Join-Path $windows 'System32')
-        }
         $probe = New-Object Diagnostics.Process
         $probe.StartInfo = New-LocalJavaStartInfo $JavaExecutable $Arguments $package
         try {
@@ -333,25 +349,39 @@ try {
             throw 'LOCAL_JAVA_FAILED'
         } finally { $probe.Dispose() }
     }
+    if ($Mode -eq 'JreVerify') {
+        # The installer holds this archive open without write sharing, so the measured bytes are the bytes it unpacks.
+        if ([IO.Path]::GetDirectoryName([IO.Path]::GetFullPath($InputPath)) -ine $package) { throw 'LOCAL_JRE_ARCHIVE' }
+        $archiveStream = [IO.File]::Open($InputPath, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
+        try {
+            $hasher = [Security.Cryptography.SHA256]::Create()
+            try { $measured = ([BitConverter]::ToString($hasher.ComputeHash($archiveStream))).Replace('-', '').ToLowerInvariant() }
+            finally { $hasher.Dispose() }
+        } finally { $archiveStream.Dispose() }
+        if ($measured -cne $jreArchiveSha256) { throw 'LOCAL_JRE_ARCHIVE' }
+        Write-LocalValidationResult 'LOCAL_VALID'
+        exit 0
+    }
     if ($Mode -in @('Jre', 'JrePrepare', 'JreCreate', 'JreProbe')) {
         Assert-SharedJre $Mode
         if ($Mode -eq 'JreProbe') { Invoke-JavaProbe '-version' 15000 }
+        if ($Mode -eq 'JreCreate') {
+            # A sibling stage folder lets the installer publish the runtime with one rename.
+            $stage = Join-Path (Join-Path $perUserRoot 'Java') ('.leadya-jre-stage-' + [Guid]::NewGuid().ToString('N'))
+            New-ProtectedDirectory $stage
+            Write-LocalValidationResult $stage
+            exit 0
+        }
         Write-LocalValidationResult 'LOCAL_VALID'
         exit 0
     }
     if ($Mode -eq 'Mirror') {
         if ($ProgramJar -notmatch '^CheckingProgram-[A-Za-z0-9.]+\.jar$') { throw 'LOCAL_JAR_NAME' }
-        if ($elevated) {
-            try { Assert-ProtectedAncestors $root } catch { Write-LocalValidationResult 'LOCAL_MIRROR_DEFERRED'; exit 0 }
-            New-ProtectedDirectory $root
-            Assert-ProtectedAncestors $root
-        } else {
-            for ($path = $root; $null -ne $path; $path = [IO.Path]::GetDirectoryName($path)) {
-                if ((Test-Path -LiteralPath $path) -and ((Get-Item -LiteralPath $path -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'LOCAL_REPARSE' }
-            }
-            [IO.Directory]::CreateDirectory($root) | Out-Null
+        for ($path = $root; $null -ne $path; $path = [IO.Path]::GetDirectoryName($path)) {
+            if ((Test-Path -LiteralPath $path) -and ((Get-Item -LiteralPath $path -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'LOCAL_REPARSE' }
         }
-        foreach ($relative in @($ProgramJar, 'LeadyaCheckingProgram.bat', 'LaunchLocalLeadYa.ps1', 'ValidateLocalInstall.ps1', 'LocalProfileRecovery.ps1', 'UninstallLocalLeadYa.ps1', 'LaunchLocalLeadYa.vbs', 'leadya-nova-icon.ico', 'leadya-code-home.txt', 'leadya-local-origin.txt', 'checking_program_version.txt')) {
+        [IO.Directory]::CreateDirectory($root) | Out-Null
+        foreach ($relative in @($ProgramJar, 'LeadyaCheckingProgram.bat', 'LaunchLocalLeadYa.ps1', 'ValidateLocalInstall.ps1', 'LocalProfileRecovery.ps1', 'UninstallLocalLeadYa.ps1', 'LaunchLocalLeadYa.vbs', 'leadya-nova-icon.ico', 'leadya-code-home.txt', 'leadya-identity-root.txt', 'leadya-local-origin.txt', 'checking_program_version.txt')) {
             $source = Join-Path $package $relative
             if ([IO.File]::Exists($source)) { Publish-AtomicFile $source (Join-Path $root $relative) }
         }
@@ -359,14 +389,13 @@ try {
         exit 0
     }
     if ($Mode -in @('Links', 'Unlink')) {
-        if (-not $elevated) { throw 'LOCAL_ADMIN_REQUIRED' }
         try {
-            $programs = [Environment]::GetFolderPath('CommonPrograms')
+            $programs = [Environment]::GetFolderPath('Programs')
             Assert-ProtectedAncestors $programs
             $menu = Join-Path $programs 'LeadYa'
             if ($Mode -eq 'Links') { New-ProtectedDirectory $menu }
             $destinations = @((Join-Path $menu 'Leadya.lnk'), (Join-Path $menu 'UninstallLeadya.lnk'))
-            $desktop = [Environment]::GetFolderPath('CommonDesktopDirectory')
+            $desktop = [Environment]::GetFolderPath('DesktopDirectory')
             try { Assert-ProtectedAncestors $desktop; $destinations += Join-Path $desktop 'Leadya.lnk' } catch { }
             $shell = New-Object -ComObject WScript.Shell
             foreach ($destination in $destinations) {
@@ -400,8 +429,8 @@ try {
                 } finally { if ([IO.File]::Exists($temporary)) { [IO.File]::Delete($temporary) } }
             }
         } catch {
-            # Shared shortcuts are optional. Never repair a shared ACL or write past a failed check.
-            # The ordinary launcher creates personal shortcuts after its non-elevated token guard.
+            # These shortcuts are optional. Never repair an ACL or write past a failed check.
+            # The launcher refreshes the personal shortcuts at every start.
             if ($Mode -eq 'Unlink') { throw }
             Write-LocalValidationResult 'LOCAL_LINKS_DEFERRED'
             exit 0
@@ -416,7 +445,64 @@ try {
         $marker = [IO.File]::ReadAllLines($markerPath)
         if ($marker.Count -ne 3 -or $marker[0] -cne 'LOCAL' -or $marker[1] -ine $RuntimePath -or $marker[2] -cne $PublicOrigin) { throw 'LOCAL_MARKER_MISMATCH' }
     }
+    if ($Mode -eq 'Adopt') {
+        # A computer installed by the old machine-wide installer keeps its profile through that program's identity.
+        # The registry names the package; this user's own marker proves the profile is theirs.
+        $packageParent = Join-Path $programFiles 'LeadYaInstallerPackages'
+        $package = [IO.Path]::GetFullPath($InputPath).TrimEnd('\')
+        # Only a package folder of the old installer for this address, with a profile of this user, can be adopted.
+        # Anything else means there is nothing to protect, and the installer starts afresh without reading the package:
+        # the released installer listed itself before its last check, so a failed first run left a package without
+        # its version file and without a profile. Lasting defects of the package or profile also start afresh and leave
+        # the old profile untouched; only an unexpected error, which a retry can clear, ends as LOCAL_VALIDATION_FAILED.
+        if ([IO.Path]::GetDirectoryName($package) -ine $packageParent -or [IO.Path]::GetFileName($package) -notmatch '^[0-9a-f]{64}$' -or
+            -not [IO.Directory]::Exists($package)) { throw 'LOCAL_ADOPT_NO_INSTALLATION' }
+        $originFile = Join-Path $package 'leadya-local-origin.txt'
+        if ([IO.File]::Exists($originFile) -and (Get-Item -LiteralPath $originFile -Force).Length -le 65536 -and
+            [IO.File]::ReadAllText($originFile).TrimEnd("`r", "`n") -cne $PublicOrigin) { throw 'LOCAL_ADOPT_NO_INSTALLATION' }
+        $profiles = @(Get-RuntimeCandidates ([IO.Path]::GetFileName($package)) | Where-Object { [IO.File]::Exists((Join-Path $_ 'leadya-local-install.txt')) })
+        if ($profiles.Count -eq 0) { throw 'LOCAL_ADOPT_NO_INSTALLATION' }
+        foreach ($relative in @('leadya-code-home.txt', 'leadya-local-origin.txt', 'checking_program_version.txt')) {
+            if (-not [IO.File]::Exists((Join-Path $package $relative))) { throw 'LOCAL_ADOPT_PACKAGE_UNUSABLE' }
+        }
+        try { $legacyCode = Read-PackageBinding }
+        catch {
+            if ([string]$_.Exception.Message -cmatch '^LOCAL_[A-Z_]{1,40}$') { throw 'LOCAL_ADOPT_PACKAGE_UNUSABLE' }
+            throw
+        }
+        # The same choice as every later start of the launcher, so the installation, its guard and the launcher agree.
+        # A fixed refusal is a lasting defect the launcher would refuse as well; anything else may pass on a retry.
+        try {
+            $verified = Resolve-LocalRuntime (Get-RuntimeCandidates ([IO.Path]::GetFileName($package)))
+            if (-not [IO.File]::Exists((Join-Path $verified 'leadya-local-install.txt'))) { throw 'LOCAL_ADOPT_PROFILE_UNUSABLE' }
+            Assert-LocalMarker $verified
+        } catch {
+            if ([string]$_.Exception.Message -cmatch '^LOCAL_[A-Z_]{1,40}$') { throw 'LOCAL_ADOPT_PROFILE_UNUSABLE' }
+            throw
+        }
+        # The commit guards exactly this folder; '|' cannot occur in a Windows path.
+        Write-LocalValidationResult ($legacyCode + '|' + $verified)
+        exit 0
+    }
+    if ($Mode -eq 'Identity') {
+        # A saved identity keeps its link while any profile location of it still holds the marker, also one the
+        # runtime resolution refuses at the moment; that refusal is then reported there with its own code.
+        if (-not $IdentityRoot) { throw 'LOCAL_PATH' }
+        if (@($candidates | Where-Object { [IO.File]::Exists((Join-Path $_ 'leadya-local-install.txt')) }).Count -eq 0) { throw 'LOCAL_IDENTITY_PROFILE_GONE' }
+        Write-LocalValidationResult 'LOCAL_VALID'
+        exit 0
+    }
     if ($Mode -eq 'Runtime') {
+        if ($InputPath) {
+            # The profile Adopt verified in this run binds the runtime of this installation, checked like its guard.
+            $adopted = [IO.Path]::GetFullPath($InputPath).TrimEnd('\')
+            if ($adopted -notin $candidates) { throw 'LOCAL_RUNTIME_BINDING' }
+            Assert-RuntimeAncestors $adopted
+            Assert-Custody $adopted $true
+            Assert-LocalMarker $adopted
+            Write-LocalValidationResult $adopted
+            exit 0
+        }
         $binding = Join-Path $root 'leadya-runtime-home.txt'
         if ([IO.File]::Exists($binding) -and (Get-Item -LiteralPath $binding).Length -le 4096) {
             $previous = [IO.File]::ReadAllText($binding).TrimEnd("`r", "`n")
@@ -428,6 +514,31 @@ try {
     if ($Mode -in @('Installed', 'Installable', 'Publish', 'Prepare', 'Seed') -and -not $SeedDirectory) { throw 'LOCAL_PACKAGE_REQUIRED' }
     if ($RuntimeDirectory -notin $candidates) { throw 'LOCAL_RUNTIME_BINDING' }
     $runtime = $RuntimeDirectory
+    if ($Mode -eq 'AdoptGuard') {
+        # The old uninstaller refuses to delete a profile that holds a hard-linked file, before deleting anything.
+        # Its ticked-by-default option would otherwise remove the profile this installation now uses.
+        # The profile Adopt verified in this run is named by the input; it is one of this identity's two locations.
+        $guarded = $runtime
+        if ($InputPath) {
+            $guarded = [IO.Path]::GetFullPath($InputPath).TrimEnd('\')
+            if ($guarded -notin $candidates) { throw 'LOCAL_RUNTIME_BINDING' }
+        }
+        # This installation prepared the profile before its commit, so a missing marker means the profile is gone.
+        if (-not [IO.File]::Exists((Join-Path $guarded 'leadya-local-install.txt'))) { throw 'LOCAL_ADOPT_PROFILE_GONE' }
+        Assert-RuntimeAncestors $guarded
+        Assert-Custody $guarded $true
+        Assert-LocalMarker $guarded
+        $guard = Join-Path $guarded 'leadya-adoption-guard-1.txt'
+        $twin = Join-Path $guarded 'leadya-adoption-guard-2.txt'
+        if (-not ([IO.File]::Exists($guard) -and [IO.File]::Exists($twin) -and (Get-Item -LiteralPath $guard -Force).LinkType -ceq 'HardLink')) {
+            foreach ($stale in @($guard, $twin)) { if ([IO.File]::Exists($stale)) { [IO.File]::Delete($stale) } }
+            [IO.File]::WriteAllText($guard, "LeadYa keeps this profile while the old uninstaller is still listed.`r`n")
+            Add-Type -Namespace LeadYa -Name AdoptionGuard -MemberDefinition '[System.Runtime.InteropServices.DllImport("kernel32.dll", CharSet=System.Runtime.InteropServices.CharSet.Unicode, SetLastError=true)] public static extern bool CreateHardLink(string link, string existing, System.IntPtr security);'
+            if (-not [LeadYa.AdoptionGuard]::CreateHardLink($twin, $guard, [IntPtr]::Zero)) { throw 'LOCAL_ADOPT_GUARD' }
+        }
+        Write-LocalValidationResult 'LOCAL_VALID'
+        exit 0
+    }
     if ($Mode -eq 'PackageSeed') {
         Assert-PackageAncestors
         Assert-PackagePath $package
@@ -545,6 +656,24 @@ try {
             if (-not $item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'LOCAL_REPARSE' }
         }
     }
+    if ($Mode -eq 'Destination') {
+        # ACLs misread filtered administrator tokens, so only a real write shows whether this user can install here.
+        $writableParent = $root
+        while (-not [IO.Directory]::Exists($writableParent)) {
+            $writableParent = [IO.Path]::GetDirectoryName($writableParent)
+            if ([string]::IsNullOrEmpty($writableParent)) { throw 'LOCAL_ADMIN_REQUIRED' }
+        }
+        $writeProbe = Join-Path $writableParent ('.leadya-write-test-' + [Guid]::NewGuid().ToString('N'))
+        try {
+            if ($writableParent -ieq $root) {
+                ([IO.File]::Open($writeProbe, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)).Dispose()
+                [IO.File]::Delete($writeProbe)
+            } else {
+                [IO.Directory]::CreateDirectory($writeProbe) | Out-Null
+                [IO.Directory]::Delete($writeProbe)
+            }
+        } catch { throw 'LOCAL_ADMIN_REQUIRED' }
+    }
     # Only the per-user runtime home contains credentials, profiles and mutable lifecycle state.
     $bound = Test-Path -LiteralPath (Join-Path $runtime 'leadya-local-install.txt')
     if (Test-Path -LiteralPath $runtime) {
@@ -568,12 +697,17 @@ try {
         if ($ProgramJar -notmatch '^CheckingProgram-[A-Za-z0-9.]+\.jar$') { throw 'LOCAL_JAR_NAME' }
         $payloadRoot = if ($SeedDirectory) { $SeedDirectory } else { $root }
         if ($SeedDirectory) {
-            foreach ($relative in @('leadya-code-home.txt', 'leadya-local-origin.txt')) { Assert-PackagePath (Join-Path $payloadRoot $relative) }
+            foreach ($relative in @('leadya-code-home.txt', 'leadya-local-origin.txt')) {
+                $path = Join-Path $payloadRoot $relative
+                if (-not [IO.File]::Exists($path)) { throw 'LOCAL_PACKAGE_BINDING' }
+                Assert-PackagePath $path
+            }
             if ([IO.File]::ReadAllText((Join-Path $payloadRoot 'leadya-code-home.txt')).TrimEnd("`r", "`n") -ine $root -or
                 [IO.File]::ReadAllText((Join-Path $payloadRoot 'leadya-local-origin.txt')).TrimEnd("`r", "`n") -cne $PublicOrigin) { throw 'LOCAL_PACKAGE_BINDING' }
         }
         foreach ($relative in @($ProgramJar, 'LeadyaCheckingProgram.bat', 'LaunchLocalLeadYa.ps1', 'Uninstall.exe')) {
             $path = Join-Path $payloadRoot $relative
+            if (-not [IO.File]::Exists($path)) { throw 'LOCAL_PAYLOAD_MISSING' }
             $item = Get-Item -LiteralPath $path -Force
             if ($item.PSIsContainer -or $item.Length -eq 0 -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'LOCAL_PAYLOAD_MISSING' }
             if ($SeedDirectory) { Assert-PackagePath $path }
@@ -583,7 +717,7 @@ try {
             Assert-Custody $runtimeJar $true
             if ((Get-Item -LiteralPath $runtimeJar -Force).PSIsContainer) { throw 'LOCAL_RUNTIME_PAYLOAD' }
         }
-        # Elevated validation executes only the admin-owned package, held against replacement until exit.
+        # Validation executes only the package copy, held against replacement until exit.
         $executionJar = Join-Path $payloadRoot $ProgramJar
         $lockedJar = [IO.File]::Open($executionJar, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
         try {
@@ -595,6 +729,7 @@ try {
             if ($Mode -eq 'Installed' -and (Get-FileHash -InputStream $lockedJar -Algorithm SHA256).Hash -ne
                 (Get-FileHash -LiteralPath $runtimeJar -Algorithm SHA256).Hash) { throw 'LOCAL_RUNTIME_PAYLOAD' }
             if (-not [IO.File]::Exists($JavaExecutable)) { throw 'LOCAL_JAVA_MISSING' }
+            if ($Mode -eq 'Installable') { Assert-SharedJre }
             Invoke-JavaProbe '-version' 15000
             $policy = if ($Mode -eq 'Installable') { ' --allow-uninitialized' } else { '' }
             Invoke-JavaProbe ('-cp "' + $executionJar + '" pl.softwizard.sellbot.checking.program.LocalInstallVerifier "' + $runtime + '" "' + $PublicOrigin + '"' + $policy) 45000

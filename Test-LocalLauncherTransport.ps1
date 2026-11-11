@@ -6,7 +6,7 @@ $source = if (Test-Path -LiteralPath (Join-Path $PSScriptRoot '..\LaunchLocalLea
 $installer = [IO.File]::ReadAllText((Join-Path $source 'Leadya.nsi'))
 $finish = [regex]::Match($installer, '(?ms)^Function RunInstalledLocalApplication\r?\n.*?^FunctionEnd').Value
 if (-not $finish -or $finish -match '(?i)wscript\.exe|\.vbs' -or
-    $finish -notmatch 'ShellExecAsUser::ShellExecAsUser' -or
+    $finish -notmatch 'ExecShell "open"' -or
     $finish -notmatch 'powershell\.exe' -or $finish -notmatch '-WindowStyle Hidden' -or $finish -notmatch 'SW_HIDE') {
     throw 'LOCAL_FINISH_TRANSPORT: finishing the installer must invoke the hidden ordinary PowerShell launcher without the VBS file association'
 }
@@ -112,7 +112,7 @@ try {
         $failedStart = Invoke-LocalLaunchBootstrap $info
         if ($failedStart.Code -cne 'LOCAL_JAVA_MEMORY') { throw 'Actual bootstrap OOM must be detected on both native output streams' }
     }
-    $java = Join-Path $env:ProgramFiles 'Java\jdk-17.0.9+9-jre\bin\java.exe'
+    $java = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'LeadYa\Java\jdk-17.0.21+9-jre\bin\java.exe'
     $compiler = Get-Command javac.exe -ErrorAction SilentlyContinue
     if ([IO.File]::Exists($java) -and $compiler) {
         $info = New-LocalJavaStartInfo $java '-Xmx999999g -version' $fixture
@@ -233,10 +233,9 @@ try {
     } finally { $locked.Dispose() }
     Write-Output 'PASS: real WScript to hidden PowerShell, literal Unicode path, normal and versioned launch'
     # Compile and execute the actual finish callback, with an inert adjacent launcher.
-    # This crosses the real NSIS plugin/ShellExecute boundary; no LeadYa profile or session is touched.
+    # This crosses the real ShellExecute boundary; no LeadYa profile or session is touched.
     $compiler = if ($NsisCompiler) { $NsisCompiler } else { (Get-Command makensis -ErrorAction Stop).Source }
     $plugins = if ($PluginDirectory) { $PluginDirectory } else { Join-Path $source 'plugins' }
-    if (-not (Test-Path -LiteralPath (Join-Path $plugins 'ShellExecAsUser.dll') -PathType Leaf)) { throw 'The actual finish plugin is required for this test' }
     $probeExe = Join-Path $fixture 'finish-probe.exe'
     $probeSource = @'
 Unicode true

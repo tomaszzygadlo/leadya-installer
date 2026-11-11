@@ -233,6 +233,116 @@ SectionEnd
                 self.assertEqual(0, process.returncode, "Native fixture exit code identifies the failed UI assertion")
             self.assertTrue(report.read_text().startswith("PASS:"))
 
+    def test_refused_folder_keeps_the_page_open_and_shows_the_code(self):
+        source = (SOURCE / "Leadya.nsi").read_text(encoding="utf-8-sig")
+        page = source.split("; BEGIN LOCAL DIRECTORY PAGE", 1)[1].split("; END LOCAL DIRECTORY PAGE", 1)[0]
+        page = page.replace("  nsDialogs::Show", "  ${NSD_CreateTimer} DriveRefusalTest 300\n  nsDialogs::Show", 1)
+        refusal = re.search(r"(?ms)^Function RequireLocalDestination$.*?^FunctionEnd$", source)
+        self.assertIsNotNone(refusal)
+        # The real refusal function runs; only its validator boundary and blocking message box are replaced.
+        real, boxes = re.subn(r'MessageBox MB_OK\|MB_ICONEXCLAMATION ("[^\n]*") /SD IDOK', r'StrCpy $shownMessage \1', refusal.group(0))
+        self.assertEqual(1, boxes)
+        constants = "\n".join(re.findall(r"^!define(?: /math)? LEADYA_(?:DEFAULT_INSTALL_DIR|LOCAL_INSTALL_SIZE_\w+) .+$", source, re.MULTILINE))
+        with tempfile.TemporaryDirectory(prefix="leadya-directory-owned-", dir=Path.home() / "Downloads") as folder:
+            base = Path(folder)
+            exe, report = base / "refusal.exe", base / "result.txt"
+            refused = (base / "not-writable").as_posix().replace("/", "\\")
+            allowed = (base / "writable").as_posix().replace("/", "\\")
+            script = r'''
+Unicode true
+Name "LeadYa [TEST]"
+RequestExecutionLevel user
+!include MUI2.nsh
+!include nsDialogs.nsh
+!include FileFunc.nsh
+!include LogicLib.nsh
+!define MUI_DIRECTORYPAGE
+@DIRECTORY_CONSTANTS@
+Var LocalDirectoryDialog
+Var LocalDirectoryPath
+Var LocalDirectoryRestore
+Var LocalDirectorySpace
+Var LocalDirectorySpaceReady
+Var LocalDestinationAccepted
+Var LocalFailureCode
+Var LocalValidationResult
+Var LocalValidationOutput
+Var LocalValidationMode
+Var shownMessage
+Var firstAttempt
+Page custom ShowLocalDirectoryPage LeaveLocalDirectoryPage
+Page custom ShowAfterDirectory
+!insertmacro MUI_LANGUAGE "Polish"
+LangString RestoreDefaultLocation ${LANG_POLISH} "Domyslna"
+LangString LocalDestinationUnsafe ${LANG_POLISH} "[TEST]-pick-another"
+LangString LocalSupportCode ${LANG_POLISH} "[TEST]-code:"
+!macro StrRep output string old new
+  StrCpy ${output} ${string}
+!macroend
+!define StrRep "!insertmacro StrRep"
+Function .onInit
+  StrCpy $firstAttempt "1"
+  StrCpy $INSTDIR "@REFUSED@"
+FunctionEnd
+Function TryResolveLocalRuntimeHome
+  StrCpy $LocalValidationResult "0"
+FunctionEnd
+Function ValidateLocalInstallation
+  StrCmp $INSTDIR "@REFUSED@" Refused
+  StrCpy $LocalValidationResult "0"
+  Return
+  Refused:
+  StrCpy $LocalValidationResult "12"
+  StrCpy $LocalValidationOutput "LOCAL_ADMIN_REQUIRED$\r$\n"
+FunctionEnd
+Function DriveRefusalTest
+  ${NSD_KillTimer} DriveRefusalTest
+  SendMessage $HWNDPARENT ${WM_COMMAND} 1 0
+  ; Still here: a refused Next must not move on.
+  StrCmp $firstAttempt "1" +2
+  System::Call 'kernel32::ExitProcess(i 81)'
+  ${NSD_GetText} $LocalDirectoryPath $1
+  StrCmp $1 "@REFUSED@" +2
+  System::Call 'kernel32::ExitProcess(i 82)'
+  StrCmp $shownMessage "" 0 +2
+  System::Call 'kernel32::ExitProcess(i 83)'
+  ${NSD_SetText} $LocalDirectoryPath "@ALLOWED@"
+  SendMessage $HWNDPARENT ${WM_COMMAND} 1 0
+FunctionEnd
+Function ShowAfterDirectory
+  StrCpy $firstAttempt "2"
+  FileOpen $0 "@REPORT@" w
+  FileWriteUTF16LE /BOM $0 "$shownMessage"
+  FileClose $0
+  SetErrorLevel 0
+  Quit
+FunctionEnd
+Section
+  SetErrorLevel 89
+SectionEnd
+'''
+            script = script.replace("@REPORT@", str(report)).replace("@DIRECTORY_CONSTANTS@", constants).replace("@REFUSED@", refused).replace("@ALLOWED@", allowed) + real + page
+            nsi = base / "refusal.nsi"
+            nsi.write_text('OutFile "' + str(exe) + '"\n' + script, encoding="utf-8-sig")
+            compiled = subprocess.run([str(NSIS), "/V2", str(nsi)], capture_output=True, text=True, timeout=30,
+                                      creationflags=subprocess.CREATE_NO_WINDOW)
+            self.assertEqual(0, compiled.returncode, compiled.stdout + compiled.stderr)
+            with subprocess.Popen([str(exe)], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                  creationflags=subprocess.CREATE_NO_WINDOW) as process:
+                try:
+                    process.communicate(timeout=30)
+                except BaseException:
+                    process.kill()
+                    process.communicate()
+                    raise
+                self.assertEqual(0, process.returncode, "Native fixture exit code identifies the failed UI assertion")
+            shown = report.read_text(encoding="utf-16")
+            self.assertIn("[TEST]-pick-another", shown)
+            self.assertIn(refused, shown, "The person must see which folder was refused")
+            self.assertIn("LOCAL_ADMIN_REQUIRED", shown, "The message must carry the code for support")
+            self.assertNotIn("Program Files", source.split('!macro LocalValidationMessages', 1)[1].split('; BEGIN LOCAL INSTALL COMPLETION', 1)[0],
+                             "The message must not recommend a folder this user cannot write to")
+
     def test_actual_download_is_visible_and_keeps_the_downloaded_bytes(self):
         source = (SOURCE / 'Leadya.nsi').read_text(encoding='utf-8-sig')
         if os.environ.get('LEADYA_TEST_HIDE_DOWNLOAD_STATUS'):
