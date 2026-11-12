@@ -340,8 +340,37 @@ Function RequireTrustedLocalJre
   LocalJreTrusted:
 FunctionEnd
 
+; Replaces the path on top of the stack with its full form. A new installation folder does not exist yet, and the
+; GetFullPathName instruction returns an empty text for a missing folder, so the Windows function forms that path
+; without looking at the disk. An existing folder keeps the instruction's result, which also restores the stored
+; spelling of its last part. A path that Windows cannot form stays as it was; the validator then refuses it. The
+; error flag is clear afterwards.
+Function LocalFullPath
+  Exch $0
+  Push $1
+  Push $2
+  ClearErrors
+  GetFullPathName $1 $0
+  IfErrors LocalFullPathMissing
+  StrCpy $0 $1
+  Goto LocalFullPathDone
+  LocalFullPathMissing:
+  System::Call 'kernel32::GetFullPathNameW(w r0, i ${NSIS_MAX_STRLEN}, w .r1, p 0) i .r2'
+  ; The call succeeds only with a length that fits the buffer; 0 is a failure and a larger value a too-long path.
+  IntCmp $2 0 LocalFullPathDone LocalFullPathDone
+  IntCmp $2 ${NSIS_MAX_STRLEN} LocalFullPathDone 0 LocalFullPathDone
+  StrCpy $0 $1
+  LocalFullPathDone:
+  ClearErrors
+  Pop $2
+  Pop $1
+  Exch $0
+FunctionEnd
+
 Function TryResolveLocalRuntimeHome
-  GetFullPathName $INSTDIR "$INSTDIR"
+  Push $INSTDIR
+  Call LocalFullPath
+  Pop $INSTDIR
   LocalCodeTrimSeparator:
   StrLen $0 $INSTDIR
   IntCmp $0 3 LocalCodePathReady LocalCodePathReady
@@ -625,11 +654,18 @@ Function SelectCompletedLocalInstallation
   StrCmp $1 "" LocalSelectionDone
   ReadRegStr $LocalValidationJar HKCU "${LOCAL_INSTALL_STATE_KEY}" "CheckingProgramJar"
   StrCpy $INSTDIR $1
+  ; A folder on a drive that is not connected now cannot be checked, and waiting does not help: the default folder
+  ; is offered at once.
+  StrCpy $2 $INSTDIR 3
+  IfFileExists "$2*.*" 0 LocalSelectionDefault
   Call TryResolveLocalRuntimeHome
   StrCmp $LocalValidationResult "0" 0 LocalSelectionFailed
   StrCpy $LocalValidationMode "Installable"
   Call ValidateLocalInstallation
-  StrCmp $LocalValidationResult "0" LocalSelectionKept
+  StrCmp $LocalValidationResult "0" 0 LocalSelectionFailed
+  ; A remembered folder that was deleted is kept like a damaged package below: only with a profile to keep and where
+  ; this user can create the folder again.
+  IfFileExists "$INSTDIR\*.*" LocalSelectionKept LocalSelectionPackage
   LocalSelectionFailed:
   ; Only a failure that a retry can clear stops here: a read error (a scanner holding a file), a validator that
   ; timed out or was refused, or too little free memory for Java. The saved folder then stays for the next run.
@@ -847,7 +883,9 @@ Function RejectTrustedLocalInstallFile
 FunctionEnd
 
 Function RequireLocalInstallHome
-  GetFullPathName $LocalHome "$INSTDIR"
+  Push $INSTDIR
+  Call LocalFullPath
+  Pop $LocalHome
   StrCpy $LocalAncestor $LocalHome
   LocalCheckAncestor:
   System::Call 'kernel32::GetFileAttributesW(w "$LocalAncestor") i .r0'
