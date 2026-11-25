@@ -434,12 +434,35 @@ try {
     $selected = $available | Sort-Object Version -Descending | Select-Object -First 1
     if (-not $selected) { throw 'LOCAL_BOOTSTRAP_MISSING' }
     $jar = $selected.Path
-    $startupLink = Join-Path ([Environment]::GetFolderPath('Startup')) 'Leadya.lnk'
-    $startupSaved = Update-PersonalLaunchLinks $package @((Join-Path ([Environment]::GetFolderPath('DesktopDirectory')) 'Leadya.lnk'),
-        $startupLink,
-        (Join-Path ([Environment]::GetFolderPath('Programs')) 'Leadya\Leadya.lnk')) $startupLink
-    # Startup folder is the single autostart registration; retire our duplicate legacy Run value.
-    if ($startupSaved) { Remove-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'Leadya Checking Program' -ErrorAction SilentlyContinue }
+    $displayName = & $native -NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File $validator -InstallDirectory $codeRoot -Mode IntegrationName -PublicOrigin $origin
+    if ($LASTEXITCODE -eq 0 -and $displayName) {
+        $linkName = $displayName + '.lnk'
+        $startupLink = Join-Path ([Environment]::GetFolderPath('Startup')) $linkName
+        $startupSaved = Update-PersonalLaunchLinks $package @((Join-Path ([Environment]::GetFolderPath('DesktopDirectory')) $linkName),
+            $startupLink,
+            (Join-Path ([Environment]::GetFolderPath('Programs')) ('Leadya\' + $linkName))) $startupLink
+        if ($startupSaved) {
+            # Remove old autostart only when it points at this installation.
+            $legacyStartup = Join-Path ([Environment]::GetFolderPath('Startup')) 'Leadya.lnk'
+            if ($legacyStartup -ine $startupLink -and [IO.File]::Exists($legacyStartup)) {
+                try {
+                    $shell = New-Object -ComObject WScript.Shell
+                    $old = $shell.CreateShortcut($legacyStartup)
+                    $expected = $shell.CreateShortcut($startupLink)
+                    if ($old.TargetPath -ieq $expected.TargetPath -and $old.Arguments -ceq $expected.Arguments) {
+                        [IO.File]::Delete($legacyStartup)
+                    }
+                } catch { Write-Warning 'The old LeadYa startup shortcut could not be removed' }
+            }
+            $runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
+            $runName = 'Leadya Checking Program'
+            $run = (Get-ItemProperty -LiteralPath $runKey -Name $runName -ErrorAction SilentlyContinue).$runName
+            $ownedRun = '"' + (Join-Path $env:SystemRoot 'System32\wscript.exe') + '" //B //Nologo "' + (Join-Path $package 'LaunchLocalLeadYa.vbs') + '"'
+            if ($run -ieq $ownedRun) {
+                Remove-ItemProperty -LiteralPath $runKey -Name $runName -ErrorAction SilentlyContinue
+            }
+        }
+    }
     $env:LEADYA_HOME = $runtime
     $prepareJava = Join-Path (Split-Path $java) 'java.exe'
     $nativeStart = New-Object Diagnostics.ProcessStartInfo

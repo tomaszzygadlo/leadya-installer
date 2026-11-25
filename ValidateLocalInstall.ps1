@@ -1,6 +1,6 @@
 param(
     [Parameter(Mandatory = $true)][string]$InstallDirectory,
-    [ValidateSet('Runtime', 'Destination', 'Prepare', 'Installed', 'Installable', 'Publish', 'Package', 'PackagePrepare', 'PackageTemp', 'PackageSeed', 'Seed', 'Uninstall', 'CodeCleanup', 'Mirror', 'Links', 'Unlink', 'Jre', 'JrePrepare', 'JreCreate', 'JreProbe', 'JreVerify', 'Adopt', 'AdoptGuard', 'Identity')][string]$Mode = 'Destination',
+    [ValidateSet('Runtime', 'Destination', 'Prepare', 'Installed', 'Installable', 'Publish', 'Package', 'PackagePrepare', 'PackageTemp', 'PackageSeed', 'Seed', 'Uninstall', 'CodeCleanup', 'Mirror', 'IntegrationName', 'Links', 'Unlink', 'Jre', 'JrePrepare', 'JreCreate', 'JreProbe', 'JreVerify', 'Adopt', 'AdoptGuard', 'Identity')][string]$Mode = 'Destination',
     [string]$PublicOrigin,
     [string]$ProgramJar,
     [string]$JavaExecutable,
@@ -35,6 +35,26 @@ try {
     $originUri = [Uri]$PublicOrigin
     if (-not $originUri.IsAbsoluteUri -or ($originUri.Scheme -ne 'https' -and -not ($originUri.Scheme -eq 'http' -and $originUri.IsLoopback)) -or
         $originUri.UserInfo -or $originUri.Query -or $originUri.Fragment -or $originUri.AbsolutePath -ne '/' -or $PublicOrigin.Contains("`n") -or $PublicOrigin.Contains("`r")) { throw 'LOCAL_ORIGIN' }
+    function Get-LocalIntegrationName {
+        switch ($PublicOrigin.TrimEnd('/')) {
+            'https://leadya.app' { return 'LeadYa' }
+            'https://hotfix.turbot.pro' { return 'LeadYa Hotfix' }
+            'https://testowy.turbot.pro' { return 'LeadYa testowy' }
+            'http://localhost:8080' { return 'LeadYa localhost' }
+        }
+        $address = $originUri.IdnHost -replace '[^a-zA-Z0-9.-]', '_'
+        if (-not $originUri.IsDefaultPort) { $address += '-' + $originUri.Port }
+        $label = switch -Regex ($originUri.Host) {
+            '^hotfix\.' { 'LeadYa Hotfix'; break }
+            '^testowy\.' { 'LeadYa testowy'; break }
+            default { if ($originUri.IsLoopback) { 'LeadYa localhost' } else { 'LeadYa' } }
+        }
+        return $label + ' (' + $address + ')'
+    }
+    if ($Mode -eq 'IntegrationName') {
+        Write-LocalValidationResult (Get-LocalIntegrationName)
+        exit 0
+    }
     function ConvertTo-IdentityRoot([string]$Path) {
         $full = [IO.Path]::GetFullPath($Path).TrimEnd('\')
         if ($full -notmatch '^[A-Za-z]:\\' -or $full.Length -le 3) { throw 'LOCAL_PATH' }
@@ -389,53 +409,83 @@ try {
         exit 0
     }
     if ($Mode -in @('Links', 'Unlink')) {
-        try {
-            $programs = [Environment]::GetFolderPath('Programs')
-            Assert-ProtectedAncestors $programs
-            $menu = Join-Path $programs 'LeadYa'
-            if ($Mode -eq 'Links') { New-ProtectedDirectory $menu }
-            $destinations = @((Join-Path $menu 'Leadya.lnk'), (Join-Path $menu 'UninstallLeadya.lnk'))
-            $desktop = [Environment]::GetFolderPath('DesktopDirectory')
-            try { Assert-ProtectedAncestors $desktop; $destinations += Join-Path $desktop 'Leadya.lnk' } catch { }
-            $shell = New-Object -ComObject WScript.Shell
-            foreach ($destination in $destinations) {
+        $displayName = Get-LocalIntegrationName
+        $uninstallPath = Join-Path $package 'Uninstall.exe'
+        $uninstallCommand = '"' + $uninstallPath + '"'
+        $uninstallRoot = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall'
+        $uninstallKey = Join-Path $uninstallRoot ('LeadYa-' + (Get-InstallationId 'Windows integration'))
+        if ($Mode -eq 'Links') {
+            if ((Read-PackageBinding) -ine $root) { throw 'LOCAL_PACKAGE_BINDING' }
+            Assert-PackagePath $uninstallPath
+            New-Item -Path $uninstallKey -Force | Out-Null
+            Set-ItemProperty -LiteralPath $uninstallKey -Name UninstallString -Value $uninstallCommand
+            Set-ItemProperty -LiteralPath $uninstallKey -Name DisplayName -Value $displayName
+            Set-ItemProperty -LiteralPath $uninstallKey -Name InstallLocation -Value $root
+            Set-ItemProperty -LiteralPath $uninstallKey -Name DisplayIcon -Value (Join-Path $package 'leadya-nova-icon.ico')
+        } elseif ((Get-ItemProperty -LiteralPath $uninstallKey -Name UninstallString -ErrorAction SilentlyContinue).UninstallString -ceq $uninstallCommand) {
+            Remove-Item -LiteralPath $uninstallKey
+        }
+        $legacyKey = Join-Path $uninstallRoot 'Leadya'
+        if ((Get-ItemProperty -LiteralPath $legacyKey -Name UninstallString -ErrorAction SilentlyContinue).UninstallString -ceq $uninstallCommand) {
+            Remove-Item -LiteralPath $legacyKey
+        }
+
+        $menu = Join-Path ([Environment]::GetFolderPath('Programs')) 'Leadya'
+        $launchName = $displayName + '.lnk'
+        $destinations = @(
+            (Join-Path $menu $launchName),
+            (Join-Path $menu ('Uninstall ' + $displayName + '.lnk')),
+            (Join-Path ([Environment]::GetFolderPath('DesktopDirectory')) $launchName)
+        )
+        $startup = [Environment]::GetFolderPath('Startup')
+        $scriptHost = Join-Path $env:SystemRoot 'System32\wscript.exe'
+        $wrapperArguments = '//B //Nologo "' + (Join-Path $package 'LaunchLocalLeadYa.vbs') + '"'
+        try { $shell = New-Object -ComObject WScript.Shell } catch {
+            Write-LocalValidationResult 'LOCAL_LINKS_DEFERRED'
+            exit 0
+        }
+        function Remove-OwnedLocalLink([string]$Path) {
+            if (-not [IO.File]::Exists($Path)) { return }
+            Assert-ProtectedAncestors $Path
+            $existing = $shell.CreateShortcut($Path)
+            if ($existing.TargetPath -in @($uninstallPath, (Join-Path $package 'LeadyaCheckingProgram.bat')) -or
+                ($existing.TargetPath -ieq $scriptHost -and $existing.Arguments -ceq $wrapperArguments)) {
+                [IO.File]::Delete($Path)
+            }
+        }
+        $deferred = $false
+        foreach ($destination in $destinations) {
+            try {
+                if ($Mode -eq 'Unlink') { Remove-OwnedLocalLink $destination; continue }
+                Assert-ProtectedAncestors $destination
                 $parent = [IO.Path]::GetDirectoryName($destination)
-                if (-not [IO.Directory]::Exists($parent)) { continue }
-                Assert-ProtectedAncestors $parent
-                $target = Join-Path $package $(if ([IO.Path]::GetFileName($destination) -eq 'UninstallLeadya.lnk') { 'Uninstall.exe' } else { 'LeadyaCheckingProgram.bat' })
-                if ($Mode -eq 'Unlink') {
-                    if ([IO.File]::Exists($destination)) {
-                        $existing = $shell.CreateShortcut($destination)
-                        $wrapperArguments = '//B //Nologo "' + (Join-Path $package 'LaunchLocalLeadYa.vbs') + '"'
-                        if ($existing.TargetPath -ieq $target -or
-                            ($existing.TargetPath -ieq (Join-Path $env:SystemRoot 'System32\wscript.exe') -and $existing.Arguments -ceq $wrapperArguments)) {
-                            [IO.File]::Delete($destination)
-                        }
-                    }
-                    continue
-                }
+                if ($parent -ieq $menu) { New-ProtectedDirectory $menu }
                 $temporary = Join-Path $package ('.leadya-link-' + [Guid]::NewGuid().ToString('N') + '.lnk')
                 try {
                     $stream = New-PackageFileStream $temporary; $stream.Dispose()
                     $link = $shell.CreateShortcut($temporary)
-                    $link.TargetPath = $target; $link.WorkingDirectory = $package; $link.WindowStyle = 1
-                    if ([IO.Path]::GetFileName($destination) -ne 'UninstallLeadya.lnk') {
-                        $link.TargetPath = Join-Path $env:SystemRoot 'System32\wscript.exe'
-                        $link.Arguments = '//B //Nologo "' + (Join-Path $package 'LaunchLocalLeadYa.vbs') + '"'
+                    $link.TargetPath = $uninstallPath; $link.WorkingDirectory = $package; $link.WindowStyle = 1
+                    if ([IO.Path]::GetFileName($destination) -ieq $launchName) {
+                        $link.TargetPath = $scriptHost
+                        $link.Arguments = $wrapperArguments
                         $link.IconLocation = (Join-Path $package 'leadya-nova-icon.ico') + ',0'
                     }
                     $link.Save()
                     Publish-AtomicFile $temporary $destination
                 } finally { if ([IO.File]::Exists($temporary)) { [IO.File]::Delete($temporary) } }
-            }
-        } catch {
-            # These shortcuts are optional. Never repair an ACL or write past a failed check.
-            # The launcher refreshes the personal shortcuts at every start.
-            if ($Mode -eq 'Unlink') { throw }
-            Write-LocalValidationResult 'LOCAL_LINKS_DEFERRED'
-            exit 0
+            } catch { $deferred = $true }
         }
-        Write-LocalValidationResult 'LOCAL_VALID'
+        $retired = @((Join-Path $menu 'UninstallLeadya.lnk'))
+        if ($Mode -eq 'Unlink') {
+            $retired += (Join-Path $startup $launchName), (Join-Path $startup 'Leadya.lnk')
+        }
+        if ($Mode -eq 'Unlink' -or $displayName -ne 'LeadYa') {
+            $retired += (Join-Path $menu 'Leadya.lnk'), (Join-Path ([Environment]::GetFolderPath('DesktopDirectory')) 'Leadya.lnk')
+        }
+        foreach ($destination in $retired) {
+            try { Remove-OwnedLocalLink $destination } catch { $deferred = $true }
+        }
+        Write-LocalValidationResult $(if ($deferred) { 'LOCAL_LINKS_DEFERRED' } else { 'LOCAL_VALID' })
         exit 0
     }
     function Assert-LocalMarker([string]$RuntimePath) {

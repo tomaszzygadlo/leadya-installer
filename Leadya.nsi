@@ -1,4 +1,4 @@
-!define url "https://testowy.backend.leadya.app"
+﻿!define url "https://testowy.backend.leadya.app"
 OutFile "../docker/botserver/installers/LeadyaInstaller-TESTOWY_LEADYA_APP.exe"
 !define public_origin "https://testowy.leadya.app"
 
@@ -55,6 +55,7 @@ Var LocalValidationInput
 Var LocalDestinationAccepted
 Var PreviousInstallIdentity
 Var LocalShowRetry
+Var LocalDefaultInstallDir
 
 !define LEADYA_DEFAULT_INSTALL_DIR "$LOCALAPPDATA\Programs\Leadya"
 !define LEADYA_LOCAL_INSTALL_SIZE_KB 15360
@@ -66,7 +67,7 @@ Var LocalShowRetry
 ; The entry written by the old machine-wide installer. It is only read, to find a computer that must keep its profile.
 !define LOCAL_LEGACY_UNINSTALL 'HKLM "${LOCAL_UNINSTALL_KEY}"'
 !define LEADYA_CHROME_DOWNLOAD_PAGE "https://www.google.com/chrome/"
-!define LEADYA_VALIDATOR_SHA256 "EB833E05B35ACA063CA749CD329E8EBADFEE180DDDC86FB6BFC5C2CC8F7E5D78"
+!define LEADYA_VALIDATOR_SHA256 "781FB142054086D0C259A3ED27490C2A6027BFE3747A9D8E4AD34340D06A4CD2"
 ; Downloads and logs stay in this user's private package, never in the chosen code folder.
 !define LEADYA_INSTALL_LOG_DIR "$LocalTrustedHome"
 
@@ -192,6 +193,9 @@ ShowInstDetails show
 !insertmacro LocalValidationMessages ${LANG_CZECH} "LeadYa nelze nainstalovat do této složky. Vyberte jinou složku nebo nechte tu, kterou navrhujeme." "${LEADYA_FAILED_EN}" "${LEADYA_SUPPORT_EN}" "Spusťte instalační program normálně dvojitým kliknutím. Nevybírejte Spustit jako správce."
 
 ; BEGIN LOCAL INSTALL COMPLETION
+!define LOCAL_DIRECTORY_VALUE "InstallDirectory@${public_origin}"
+!define LOCAL_COMPLETE_VALUE "InstalledSuccessfully@${public_origin}"
+!define LOCAL_JAR_VALUE "CheckingProgramJar@${public_origin}"
 ; The installers of every address share HKCU\Software\Leadya\Server. The identity and the adoption stop carry the
 ; address in their value name, and a value of another address is never read or changed. A value written before,
 ; without an address, is still read as before. The identity of that kind is never changed; a stop of that kind is
@@ -563,7 +567,7 @@ FunctionEnd
 
 Function RestoreDefaultLocalDirectory
   Pop $0
-  StrCpy $INSTDIR "${LEADYA_DEFAULT_INSTALL_DIR}"
+  StrCpy $INSTDIR $LocalDefaultInstallDir
   ${NSD_SetText} $LocalDirectoryPath "$INSTDIR"
   System::Call 'user32::SetFocus(p $LocalDirectoryPath)'
 FunctionEnd
@@ -648,11 +652,19 @@ FunctionEnd
 Function SelectCompletedLocalInstallation
   ; Preserve an explicit command-line /D destination.
   StrCmp $INSTDIR "${LEADYA_DEFAULT_INSTALL_DIR}" 0 LocalSelectionDone
+  StrCpy $INSTDIR $LocalDefaultInstallDir
+  ReadRegDWORD $0 HKCU "${LOCAL_INSTALL_STATE_KEY}" "${LOCAL_COMPLETE_VALUE}"
+  StrCmp $0 "1" 0 LocalSelectionLegacy
+  ReadRegStr $1 HKCU "${LOCAL_INSTALL_STATE_KEY}" "${LOCAL_DIRECTORY_VALUE}"
+  ReadRegStr $LocalValidationJar HKCU "${LOCAL_INSTALL_STATE_KEY}" "${LOCAL_JAR_VALUE}"
+  Goto LocalSelectionCandidate
+  LocalSelectionLegacy:
   ReadRegDWORD $0 HKCU "${LOCAL_INSTALL_STATE_KEY}" "InstalledSuccessfully"
   StrCmp $0 "1" 0 LocalSelectionDone
   ReadRegStr $1 HKCU "${LOCAL_INSTALL_STATE_KEY}" ""
-  StrCmp $1 "" LocalSelectionDone
   ReadRegStr $LocalValidationJar HKCU "${LOCAL_INSTALL_STATE_KEY}" "CheckingProgramJar"
+  LocalSelectionCandidate:
+  StrCmp $1 "" LocalSelectionDone
   StrCpy $INSTDIR $1
   ; A folder on a drive that is not connected now cannot be checked, and waiting does not help: the default folder
   ; is offered at once.
@@ -698,7 +710,7 @@ Function SelectCompletedLocalInstallation
   SetErrorLevel 12
   Quit
   LocalSelectionDefault:
-  StrCpy $INSTDIR "${LEADYA_DEFAULT_INSTALL_DIR}"
+  StrCpy $INSTDIR $LocalDefaultInstallDir
   LocalSelectionKept:
   ; Any answer other than a retryable failure ends an earlier stop.
   DeleteRegValue HKCU "${LOCAL_INSTALL_STATE_KEY}" "${LOCAL_RESOLVE_STOPPED_VALUE}"
@@ -707,9 +719,9 @@ Function SelectCompletedLocalInstallation
 FunctionEnd
 
 Function CommitCompletedLocalInstallation
-  ReadRegStr $PreviousInstallDirectory HKCU "${LOCAL_INSTALL_STATE_KEY}" ""
-  ReadRegDWORD $PreviousInstallComplete HKCU "${LOCAL_INSTALL_STATE_KEY}" "InstalledSuccessfully"
-  ReadRegStr $PreviousInstallJar HKCU "${LOCAL_INSTALL_STATE_KEY}" "CheckingProgramJar"
+  ReadRegStr $PreviousInstallDirectory HKCU "${LOCAL_INSTALL_STATE_KEY}" "${LOCAL_DIRECTORY_VALUE}"
+  ReadRegDWORD $PreviousInstallComplete HKCU "${LOCAL_INSTALL_STATE_KEY}" "${LOCAL_COMPLETE_VALUE}"
+  ReadRegStr $PreviousInstallJar HKCU "${LOCAL_INSTALL_STATE_KEY}" "${LOCAL_JAR_VALUE}"
   ReadRegStr $PreviousInstallIdentity HKCU "${LOCAL_INSTALL_STATE_KEY}" "${LOCAL_IDENTITY_VALUE}"
   ClearErrors
   StrCmp $LocalIdentityRoot "" 0 LocalCommitIdentity
@@ -723,11 +735,11 @@ Function CommitCompletedLocalInstallation
   WriteRegStr HKCU "${LOCAL_INSTALL_STATE_KEY}" "${LOCAL_IDENTITY_VALUE}" $LocalIdentityRoot
   IfErrors LocalCommitFailed
   LocalCommitLocation:
-  WriteRegStr HKCU "${LOCAL_INSTALL_STATE_KEY}" "" $INSTDIR
+  WriteRegStr HKCU "${LOCAL_INSTALL_STATE_KEY}" "${LOCAL_DIRECTORY_VALUE}" $INSTDIR
   IfErrors LocalCommitFailed
-  WriteRegStr HKCU "${LOCAL_INSTALL_STATE_KEY}" "CheckingProgramJar" $LocalValidationJar
+  WriteRegStr HKCU "${LOCAL_INSTALL_STATE_KEY}" "${LOCAL_JAR_VALUE}" $LocalValidationJar
   IfErrors LocalCommitFailed
-  WriteRegDWORD HKCU "${LOCAL_INSTALL_STATE_KEY}" "InstalledSuccessfully" 1
+  WriteRegDWORD HKCU "${LOCAL_INSTALL_STATE_KEY}" "${LOCAL_COMPLETE_VALUE}" 1
   IfErrors LocalCommitFailed
   ; A completed installation ends any earlier stop of its adoption, also on the saved-identity path without Adopt,
   ; and any earlier stop of the check of its saved folder.
@@ -738,17 +750,17 @@ Function CommitCompletedLocalInstallation
   Return
   LocalCommitFailed:
   StrCmp $PreviousInstallDirectory "" 0 +3
-  DeleteRegValue HKCU "${LOCAL_INSTALL_STATE_KEY}" ""
+  DeleteRegValue HKCU "${LOCAL_INSTALL_STATE_KEY}" "${LOCAL_DIRECTORY_VALUE}"
   Goto +2
-  WriteRegStr HKCU "${LOCAL_INSTALL_STATE_KEY}" "" $PreviousInstallDirectory
+  WriteRegStr HKCU "${LOCAL_INSTALL_STATE_KEY}" "${LOCAL_DIRECTORY_VALUE}" $PreviousInstallDirectory
   StrCmp $PreviousInstallJar "" 0 +3
-  DeleteRegValue HKCU "${LOCAL_INSTALL_STATE_KEY}" "CheckingProgramJar"
+  DeleteRegValue HKCU "${LOCAL_INSTALL_STATE_KEY}" "${LOCAL_JAR_VALUE}"
   Goto +2
-  WriteRegStr HKCU "${LOCAL_INSTALL_STATE_KEY}" "CheckingProgramJar" $PreviousInstallJar
+  WriteRegStr HKCU "${LOCAL_INSTALL_STATE_KEY}" "${LOCAL_JAR_VALUE}" $PreviousInstallJar
   StrCmp $PreviousInstallComplete "" 0 +3
-  DeleteRegValue HKCU "${LOCAL_INSTALL_STATE_KEY}" "InstalledSuccessfully"
+  DeleteRegValue HKCU "${LOCAL_INSTALL_STATE_KEY}" "${LOCAL_COMPLETE_VALUE}"
   Goto +2
-  WriteRegDWORD HKCU "${LOCAL_INSTALL_STATE_KEY}" "InstalledSuccessfully" $PreviousInstallComplete
+  WriteRegDWORD HKCU "${LOCAL_INSTALL_STATE_KEY}" "${LOCAL_COMPLETE_VALUE}" $PreviousInstallComplete
   StrCmp $PreviousInstallIdentity "" 0 +3
   DeleteRegValue HKCU "${LOCAL_INSTALL_STATE_KEY}" "${LOCAL_IDENTITY_VALUE}"
   Goto +2
@@ -1073,8 +1085,6 @@ SectionIn 1
   ${LogLine} "(SecServer) Creating uninstaller"
   WriteUninstaller "$LocalTrustedHome\Uninstall.exe"
 
-  WriteRegStr HKCU "${LOCAL_UNINSTALL_KEY}" "DisplayName" "Leadya"
-  WriteRegStr HKCU "${LOCAL_UNINSTALL_KEY}" "UninstallString" "$\"$LocalTrustedHome\Uninstall.exe$\""
   StrCpy $LocalValidationJar "CheckingProgram-$CheckingProgramVersion.jar"
   DetailPrint "$(LOG_verifyingInstallation)"
   StrCpy $LocalValidationMode "Installable"
@@ -1156,6 +1166,7 @@ SectionIn 1
   ${StrRep} $LocalValidationOutput $LocalValidationOutput "$\r" ""
   ${StrRep} $LocalValidationOutput $LocalValidationOutput "$\n" ""
   StrCmp $LocalValidationOutput "LOCAL_LINKS_DEFERRED" 0 LocalSharedLinksDone
+  LocalSharedLinksDeferred:
   DetailPrint "$(LOG_sharedShortcutDeferred)"
   DetailPrint "$LocalTrustedHome\LaunchLocalLeadYa.vbs"
   LocalSharedLinksDone:
@@ -1204,6 +1215,13 @@ Function .onInit
 
   InitPluginsDir
   File /oname=$PLUGINSDIR\ValidateLocalInstall.ps1 "ValidateLocalInstall.ps1"
+  StrCpy $LocalValidationMode "IntegrationName"
+  Call ValidateLocalInstallation
+  StrCmp $LocalValidationResult "0" +4
+  Call ShowLocalInstallationFailure
+  SetErrorLevel 12
+  Quit
+  StrCpy $LocalDefaultInstallDir "$LOCALAPPDATA\Programs\$LocalValidationOutput"
   Call ResolveLocalIdentity
   Call SelectCompletedLocalInstallation
   Call ResolveLocalRuntimeHome
@@ -1303,6 +1321,16 @@ Section "Uninstall" SecUninstallServer
   ; Private user data is removed only by the ordinary interactive user's token.
   ; Refuse before touching installed code if a marked profile is still in use.
   Call un.CleanupLocalUser
+  ; Required Windows integration must be removed while the trusted package/uninstaller can still be retried.
+  StrCpy $LocalValidationMode "Unlink"
+  StrCpy $LocalValidationSeed $LocalTrustedHome
+  !insertmacro InvokePinnedLocalValidator UninstallLinks
+  StrCmp $LocalValidationResult "0" LocalUninstallIntegrationDone
+  DetailPrint "$LocalValidationOutput"
+  MessageBox MB_OK|MB_ICONEXCLAMATION "Nie mozna teraz usunac wpisu programu w systemie Windows. Pliki programu pozostaly na miejscu. Ponow deinstalacje za chwile." /SD IDOK
+  SetErrorLevel 12
+  Abort
+  LocalUninstallIntegrationDone:
   ; Code directories may contain unrelated files and legacy data. Retain those on uninstall.
   StrCmp $LocalCodeCleanup "1" 0 LocalUninstallCodeDone
   StrCmp $LocalValidationJar "" +2
@@ -1338,12 +1366,17 @@ Section "Uninstall" SecUninstallServer
   SkipSharedJreRemoval:
   SharedJreHandled:
 
-  StrCpy $LocalValidationMode "Unlink"
-  StrCpy $LocalValidationSeed $LocalTrustedHome
-  !insertmacro InvokePinnedLocalValidator UninstallLinks
   ; A stop of this address's adoption or of the check of its saved folder means nothing once its installation is gone.
   DeleteRegValue HKCU "${LOCAL_INSTALL_STATE_KEY}" "${LOCAL_ADOPT_STOPPED_VALUE}"
   DeleteRegValue HKCU "${LOCAL_INSTALL_STATE_KEY}" "${LOCAL_RESOLVE_STOPPED_VALUE}"
+  ReadRegStr $0 HKCU "${LOCAL_INSTALL_STATE_KEY}" "${LOCAL_DIRECTORY_VALUE}"
+  StrCmp $0 $INSTDIR 0 LocalUninstallLegacyState
+  DeleteRegValue HKCU "${LOCAL_INSTALL_STATE_KEY}" "${LOCAL_DIRECTORY_VALUE}"
+  DeleteRegValue HKCU "${LOCAL_INSTALL_STATE_KEY}" "${LOCAL_JAR_VALUE}"
+  DeleteRegValue HKCU "${LOCAL_INSTALL_STATE_KEY}" "${LOCAL_COMPLETE_VALUE}"
+  StrCmp $uninstallRemoveProfileState ${BST_CHECKED} 0 LocalUninstallLegacyState
+  DeleteRegValue HKCU "${LOCAL_INSTALL_STATE_KEY}" "${LOCAL_IDENTITY_VALUE}"
+  LocalUninstallLegacyState:
   ReadRegStr $0 HKCU "${LOCAL_INSTALL_STATE_KEY}" ""
   StrCmp $0 $INSTDIR 0 LocalUninstallShortcutsDone
   ; A kept profile must stay reachable when LeadYa is installed again.
@@ -1362,8 +1395,8 @@ Section "Uninstall" SecUninstallServer
   DeleteRegValue HKCU "${LOCAL_INSTALL_STATE_KEY}" "CheckingProgramJar"
   DeleteRegValue HKCU "${LOCAL_INSTALL_STATE_KEY}" "InstalledSuccessfully"
   DeleteRegValue HKCU "${LOCAL_INSTALL_STATE_KEY}" "${LOCAL_IDENTITY_VALUE}"
-  DeleteRegKey /ifnosubkeys /ifnovalues HKCU "${LOCAL_INSTALL_STATE_KEY}"
   LocalUninstallShortcutsDone:
+  DeleteRegKey /ifnosubkeys /ifnovalues HKCU "${LOCAL_INSTALL_STATE_KEY}"
   StrCmp $LocalTrustedHome "" LocalUninstallPackageDone
   ReadRegStr $0 HKCU "${LOCAL_UNINSTALL_KEY}" "UninstallString"
   StrCmp $0 '$\"$LocalTrustedHome\Uninstall.exe$\"' 0 +2

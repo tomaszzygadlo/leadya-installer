@@ -65,14 +65,16 @@ writes only into the folders of the Windows user who runs it:
 
 | What | Where |
 | --- | --- |
-| Program files (another folder can be chosen) | `%LOCALAPPDATA%\Programs\Leadya` |
+| Program files (another folder can be chosen) | `%LOCALAPPDATA%\Programs\LeadYa`, `LeadYa Hotfix`, `LeadYa testowy` or `LeadYa localhost`, according to the public origin |
 | Package: launcher, validator, uninstaller, seed | `%LOCALAPPDATA%\LeadYa\packages\<id>` |
 | Java runtime | `%LOCALAPPDATA%\LeadYa\Java\jdk-17.0.21+9-jre` |
 | Profile, configuration, downloaded updates | `%LOCALAPPDATA%\LeadYa\installations\<id>` |
-| Apps & features entry | `HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\Leadya` |
+| Apps & features entry | `HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\LeadYa-<integration-id>`; each public origin has its own entry |
 | Shortcuts | personal Start menu, desktop and startup folder |
 
-`<id>` is the SHA-256 of the program path and the public origin. If the profile location
+The package/profile `<id>` is the SHA-256 of the normalized identity path, a newline and the public origin.
+The separate `<integration-id>` is the SHA-256 of `WINDOWS INTEGRATION`, a newline and the exact public origin.
+If the profile location
 does not pass the private-profile checks, `%USERPROFILE%\.leadya-client\installations\<id>`
 is used. No machine-wide `LEADYA_HOME` is written; the launcher sets it for its own process.
 

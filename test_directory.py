@@ -98,8 +98,9 @@ class InstallerDirectoryTest(unittest.TestCase):
         page = source.split("; BEGIN LOCAL DIRECTORY PAGE", 1)[1].split("; END LOCAL DIRECTORY PAGE", 1)[0]
         if os.environ.get("LEADYA_TEST_DISABLE_DIRECTORY_RESET"):
             # Causal mutant: retain the real button/event but remove its reset operation.
-            page = page.replace('  StrCpy $INSTDIR "${LEADYA_DEFAULT_INSTALL_DIR}"\n'
-                                '  ${NSD_SetText} $LocalDirectoryPath "$INSTDIR"', '')
+            operation = '  StrCpy $INSTDIR $LocalDefaultInstallDir\n  ${NSD_SetText} $LocalDirectoryPath "$INSTDIR"'
+            self.assertIn(operation, page, 'The causal mutant must remove the current real reset operation')
+            page = page.replace(operation, '')
         # Replace only the native folder-picker boundary to exercise its cancellation branch.
         page = page.replace('nsDialogs::SelectFolderDialog "$(^DirBrowseText)" "$INSTDIR"', 'Push "error"')
         page = page.replace("  nsDialogs::Show", "  ${NSD_CreateTimer} DriveDirectoryTest 700\n  nsDialogs::Show", 1)
@@ -119,6 +120,7 @@ RequestExecutionLevel user
 Var LocalDirectoryDialog
 Var LocalDirectoryPath
 Var LocalDirectoryRestore
+Var LocalDefaultInstallDir
 Var LocalDirectorySpace
 Var LocalDirectorySpaceReady
 Var phase
@@ -130,11 +132,12 @@ LangString RestoreDefaultLocation ${LANG_POLISH} "Przywróć domyślną lokaliza
 Function .onInit
   StrCpy $phase "0"
   StrCpy $leaveCount "0"
+  StrCpy $LocalDefaultInstallDir "C:\LeadYa origin fixture"
   StrCpy $INSTDIR "C:\wybrany folder ź ! & %"
 FunctionEnd
 Function RequireLocalDestination
   ; External policy boundary: production Leave must still call it after reading the edit.
-  StrCmp $INSTDIR "${LEADYA_DEFAULT_INSTALL_DIR}" +2
+  StrCmp $INSTDIR "$LocalDefaultInstallDir" +2
   System::Call 'kernel32::ExitProcess(i 94)'
   IntOp $leaveCount $leaveCount + 1
 FunctionEnd
@@ -146,7 +149,7 @@ Function DriveDirectoryTest
   System::Call 'kernel32::ExitProcess(i 91)'
   Goto Reset
   SecondVisit:
-  StrCmp $INSTDIR "${LEADYA_DEFAULT_INSTALL_DIR}" +2
+  StrCmp $INSTDIR "$LocalDefaultInstallDir" +2
   System::Call 'kernel32::ExitProcess(i 92)'
   ${NSD_SetText} $LocalDirectoryPath ""
   GetDlgItem $0 $HWNDPARENT 1
@@ -172,7 +175,7 @@ Function DriveDirectoryTest
   SendMessage $LocalDirectoryRestore ${BM_CLICK} 0 0
   SendMessage $LocalDirectoryRestore ${BM_CLICK} 0 0
   ${NSD_GetText} $LocalDirectoryPath $1
-  StrCmp $1 "${LEADYA_DEFAULT_INSTALL_DIR}" +2
+  StrCmp $1 "$LocalDefaultInstallDir" +2
   System::Call 'kernel32::ExitProcess(i 96)'
   StrCmp $INSTDIR $1 +2
   System::Call 'kernel32::ExitProcess(i 97)'
@@ -261,6 +264,7 @@ RequestExecutionLevel user
 Var LocalDirectoryDialog
 Var LocalDirectoryPath
 Var LocalDirectoryRestore
+Var LocalDefaultInstallDir
 Var LocalDirectorySpace
 Var LocalDirectorySpaceReady
 Var LocalDestinationAccepted
@@ -282,6 +286,7 @@ LangString LocalSupportCode ${LANG_POLISH} "[TEST]-code:"
 !define StrRep "!insertmacro StrRep"
 Function .onInit
   StrCpy $firstAttempt "1"
+  StrCpy $LocalDefaultInstallDir "@ALLOWED@"
   StrCpy $INSTDIR "@REFUSED@"
 FunctionEnd
 Function TryResolveLocalRuntimeHome
@@ -391,10 +396,10 @@ SectionEnd
                           'SetErrorLevel 0\nQuit\nSectionEnd\n'
                           'Function .onInstSuccess\nSetErrorLevel 0\nQuit\nFunctionEnd\n')
                 nsi.write_text(script, encoding='utf-8-sig')
-                compiled = subprocess.run([str(NSIS), '/V2', str(nsi)], capture_output=True, text=True, timeout=30,
-                                          creationflags=subprocess.CREATE_NO_WINDOW)
-                self.assertEqual(0, compiled.returncode, compiled.stdout + compiled.stderr)
                 try:
+                    compiled = subprocess.run([str(NSIS), '/V2', str(nsi)], capture_output=True, text=True, timeout=30,
+                                              creationflags=subprocess.CREATE_NO_WINDOW)
+                    self.assertEqual(0, compiled.returncode, compiled.stdout + compiled.stderr)
                     with subprocess.Popen([str(exe)], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                           creationflags=subprocess.CREATE_NO_WINDOW) as process:
                         try:
