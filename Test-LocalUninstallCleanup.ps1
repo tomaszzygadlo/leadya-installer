@@ -192,14 +192,34 @@ try {
         catch { if ($_.Exception.ToString() -notmatch 'LOCAL_UNINSTALL_DEADLINE') { throw } }
         if (-not (Test-Path -LiteralPath (Join-Path $first 'bot_files/bot.properties'))) { throw 'Expired worker mutated the profile' }
     } finally { [LeadYa.LocalUninstallFiles]::ClearOwner(); $self.Dispose() }
-    $child = Start-Process -FilePath (Join-Path $PSHOME 'powershell.exe') -ArgumentList '-NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -Command "Start-Sleep -Seconds 2"' -WindowStyle Hidden -PassThru
+    $ready = Join-Path $fixture 'owner-ready.txt'
+    $stop = Join-Path $fixture 'owner-stop.txt'
+    $ownerCommand = "[IO.File]::WriteAllText('" + $ready.Replace("'", "''") + "','ready'); " +
+        "`$limit=[Diagnostics.Stopwatch]::StartNew(); while(-not [IO.File]::Exists('" + $stop.Replace("'", "''") +
+        "') -and `$limit.Elapsed.TotalSeconds -lt 60) { Start-Sleep -Milliseconds 50 }"
+    $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($ownerCommand))
+    $child = Start-Process -FilePath (Join-Path $PSHOME 'powershell.exe') -ArgumentList @('-NoLogo', '-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-EncodedCommand', $encoded) -WindowStyle Hidden -PassThru
     try {
-        [LeadYa.LocalUninstallFiles]::ConfigureOwner($child.Id, $child.StartTime.ToFileTimeUtc(), $child.MainModule.FileName, [LeadYa.LocalUninstallFiles]::DeadlineIn(20))
-        if (-not $child.WaitForExit(10000)) { throw 'Disposable owner did not exit' }
+        $null = $child.Handle
+        $startup = [Diagnostics.Stopwatch]::StartNew()
+        while (-not [IO.File]::Exists($ready) -and -not $child.HasExited -and $startup.Elapsed.TotalSeconds -lt 30) { Start-Sleep -Milliseconds 50 }
+        if (-not [IO.File]::Exists($ready) -or $child.HasExited) { throw 'Disposable owner did not become ready' }
+        [LeadYa.LocalUninstallFiles]::ConfigureOwner($child.Id, $child.StartTime.ToFileTimeUtc(), $child.MainModule.FileName, [LeadYa.LocalUninstallFiles]::DeadlineIn(60))
+        [IO.File]::WriteAllText($stop, 'stop')
+        if (-not $child.WaitForExit(30000)) { throw 'Disposable owner did not exit after its stop signal' }
         try { [LeadYa.LocalUninstallFiles]::DeleteProfile($first, 'https://hotfix.turbot.pro'); throw 'Closed owner accepted' }
         catch { if ($_.Exception.ToString() -notmatch 'LOCAL_UNINSTALL_OWNER') { throw } }
         if (-not (Test-Path -LiteralPath (Join-Path $first 'bot_files/bot.properties'))) { throw 'Closed owner worker mutated profile' }
-    } finally { [LeadYa.LocalUninstallFiles]::ClearOwner(); $child.Dispose() }
+    } finally {
+        try {
+            [LeadYa.LocalUninstallFiles]::ClearOwner()
+            if (-not $child.HasExited) {
+                try { $child.Kill() }
+                catch [InvalidOperationException] { if (-not $child.HasExited) { throw } }
+                if (-not $child.WaitForExit(10000)) { throw 'Disposable owner cleanup did not confirm exit' }
+            }
+        } finally { $child.Dispose() }
+    }
     Write-Output 'PASS: both profiles preflighted before mutation; expired worker performs no deletion'
 } finally {
     $resolved = [IO.Path]::GetFullPath($fixture)
